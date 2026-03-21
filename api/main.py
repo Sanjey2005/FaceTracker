@@ -80,11 +80,14 @@ def get_conn():
 # { cam_id: { 'queue': Queue, 'thread': Thread, 'stop': Event } }
 _cameras: dict = {}
 
+# { cam_id: set of face_ids currently visible in that camera }
+_camera_last_resolved: dict = {}
+
 # ---------------------------------------------------------------------------
 # Person search state
 # ---------------------------------------------------------------------------
 
-_target_embedding: Optional[np.ndarray] = None
+_target_embeddings: list = []  # list of L2-normalised numpy arrays, one per enrolled photo
 _target_face_id: Optional[str] = None
 _search_embedder = None  # lazy-loaded FaceEmbedder
 
@@ -204,23 +207,34 @@ def get_events():
 
 
 @app.get("/hourly")
-def get_hourly():
+def get_hourly(range: str = "day"):
     """
-    Returns visitor count per hour of day using faces.first_seen.
-    Response: list of {hour: "HH", count: N}
+    Returns visitor counts grouped by hour (range=day) or day-of-week (range=week).
+    Response: list of {hour: "HH" | "Mon", count: N}
     """
     conn = get_conn()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                """
-                SELECT TO_CHAR(first_seen::timestamp, 'HH24') AS hour,
-                       COUNT(*)                                AS count
-                FROM   faces
-                GROUP  BY hour
-                ORDER  BY hour
-                """
-            )
+            if range == "week":
+                cur.execute(
+                    """
+                    SELECT TO_CHAR(first_seen::timestamp, 'Dy') AS hour,
+                           COUNT(*)                              AS count
+                    FROM   faces
+                    GROUP  BY TO_CHAR(first_seen::timestamp, 'Dy')
+                    ORDER  BY MIN(EXTRACT(ISODOW FROM first_seen::timestamp))
+                    """
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT TO_CHAR(first_seen::timestamp, 'HH24') AS hour,
+                           COUNT(*)                                AS count
+                    FROM   faces
+                    GROUP  BY hour
+                    ORDER  BY hour
+                    """
+                )
             rows = cur.fetchall()
         return [dict(row) for row in rows]
     except psycopg2.Error as exc:
@@ -354,6 +368,7 @@ def _run_pipeline(
 
                 active_ids = {t["tracker_id"] for t in last_tracks}
                 last_resolved = {k: v for k, v in last_resolved.items() if k in active_ids}
+                _camera_last_resolved[camera_id] = set(last_resolved.values())
 
             # Draw last known boxes on EVERY frame
             annotated = frame.copy()
@@ -368,13 +383,34 @@ def _run_pipeline(
                             cv2.LINE_AA)
 
             # Target highlight: draw red box over matched person
-            if (_target_embedding is not None
-                    and _target_face_id is not None
-                    and _target_face_id != "SEARCHING"):
+            if _target_embeddings and _target_face_id and _target_face_id != "SEARCHING":
                 for track in last_tracks:
                     tid = track.get("tracker_id") or track.get("track_id")
                     fid = last_resolved.get(tid, "")
-                    if fid == _target_face_id:
+                    is_target = (fid == _target_face_id)
+                    if not is_target and fid and _pool:
+                        try:
+                            conn = _pool.getconn()
+                            try:
+                                with conn.cursor() as cur:
+                                    cur.execute(
+                                        "SELECT embedding FROM faces WHERE face_id=%s", (fid,)
+                                    )
+                                    row = cur.fetchone()
+                                if row:
+                                    stored_emb = np.frombuffer(bytes(row[0]), dtype=np.float32)
+                                    stored_norm = stored_emb / (np.linalg.norm(stored_emb) + 1e-8)
+                                    for t_emb in _target_embeddings:
+                                        sim = float(np.dot(stored_norm, t_emb))
+                                        if sim > 0.50:
+                                            is_target = True
+                                            _target_face_id = fid
+                                            break
+                            finally:
+                                _pool.putconn(conn)
+                        except Exception:
+                            pass
+                    if is_target:
                         x1, y1, x2, y2 = map(int, track["bbox"])
                         cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 0, 255), 4)
                         cv2.putText(annotated, "TARGET", (x1, max(y1 - 12, 0)),
@@ -438,6 +474,7 @@ def stream_stop(body: StreamStop):
     cam_id = body.camera_id
     if cam_id in _cameras:
         _cameras[cam_id]["stop"].set()
+    _camera_last_resolved.pop(cam_id, None)
     logger.info("STREAM_STOP camera_id=%s", cam_id)
     return {"status": "stopped", "camera_id": cam_id}
 
@@ -490,36 +527,21 @@ def stream_feed(camera_id: str = "cam_01"):
 # ---------------------------------------------------------------------------
 
 
-@app.post("/search/set-target")
-async def search_set_target(image: UploadFile = File(...)):
-    """
-    Upload a photo of a target person. Extract their face embedding and search
-    the faces table for the closest match (cosine similarity >= 0.62).
-    Sets _target_face_id to the matched face_id or "SEARCHING" if no match found.
-    """
-    global _target_embedding, _target_face_id
-
-    # Save uploaded image
-    dest = Path(__file__).parent.parent / "data" / "search_target.jpg"
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    img_bytes = await image.read()
-    dest.write_bytes(img_bytes)
-
-    # Decode image
+def _extract_normalised_embedding(img_bytes: bytes) -> np.ndarray:
+    """Decode image bytes, run InsightFace, return L2-normalised 512-dim embedding."""
     img = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
     if img is None:
         raise HTTPException(status_code=400, detail="Cannot decode uploaded image")
-
-    # Extract embedding using InsightFace on the full photo
     embedder = _get_search_embedder()
     faces = embedder.app.get(img)
     if not faces:
         raise HTTPException(status_code=400, detail="No face detected in uploaded image")
+    emb = np.array(faces[0].embedding, dtype=np.float32)
+    return emb / (np.linalg.norm(emb) + 1e-8)
 
-    target_emb = np.array(faces[0].embedding, dtype=np.float32)
-    _target_embedding = target_emb
 
-    # Cosine similarity search across all stored face embeddings
+def _search_db_for_target(target_norm: np.ndarray, threshold: float) -> tuple[Optional[str], float]:
+    """Return (best_face_id, best_sim) from the faces table, or (None, -1) if below threshold."""
     conn = get_conn()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -531,7 +553,6 @@ async def search_set_target(image: UploadFile = File(...)):
     finally:
         _pool.putconn(conn)
 
-    target_norm = target_emb / (np.linalg.norm(target_emb) + 1e-8)
     best_id, best_sim = None, -1.0
     for row in rows:
         stored = np.frombuffer(bytes(row["embedding"]), dtype=np.float32)
@@ -540,22 +561,97 @@ async def search_set_target(image: UploadFile = File(...)):
         if sim > best_sim:
             best_sim, best_id = sim, row["face_id"]
 
-    _target_face_id = best_id if (best_id and best_sim >= 0.62) else "SEARCHING"
-    logger.info("SEARCH_TARGET_SET matched_face_id=%s sim=%.4f", _target_face_id, best_sim)
-    return {"status": "target_set", "matched_face_id": _target_face_id}
+    if best_id and best_sim >= threshold:
+        return best_id, best_sim
+    return None, best_sim
+
+
+@app.post("/search/set-target")
+async def search_set_target(image: UploadFile = File(...)):
+    """
+    Upload first photo of a target person. Resets the enrollment list to [this embedding].
+    Searches the faces table with cosine similarity >= 0.50.
+    Sets _target_face_id to the matched face_id or "SEARCHING" if no match found.
+    """
+    global _target_embeddings, _target_face_id
+
+    img_bytes = await image.read()
+    dest = Path(__file__).parent.parent / "data" / "search_target_0.jpg"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(img_bytes)
+
+    target_norm = _extract_normalised_embedding(img_bytes)
+    _target_embeddings = [target_norm]
+
+    best_id, best_sim = _search_db_for_target(target_norm, threshold=0.50)
+    _target_face_id = best_id if best_id else "SEARCHING"
+    logger.info("SEARCH_TARGET_SET matched_face_id=%s sim=%.4f photos=1", _target_face_id, best_sim)
+    return {"status": "target_set", "matched_face_id": _target_face_id, "total_photos": 1}
+
+
+@app.post("/search/add-photo")
+async def search_add_photo(image: UploadFile = File(...)):
+    """
+    Upload an additional photo of the same target person (different angle/lighting).
+    Appends the new embedding to _target_embeddings and re-runs the DB search
+    using all enrolled embeddings (best match across any photo wins).
+    """
+    global _target_embeddings, _target_face_id
+
+    if not _target_embeddings:
+        raise HTTPException(status_code=400, detail="No target set yet. Use /search/set-target first.")
+
+    img_bytes = await image.read()
+    idx = len(_target_embeddings)
+    dest = Path(__file__).parent.parent / "data" / f"search_target_{idx}.jpg"
+    dest.write_bytes(img_bytes)
+
+    new_norm = _extract_normalised_embedding(img_bytes)
+    _target_embeddings.append(new_norm)
+
+    # Re-run DB search across all enrolled embeddings; keep best match
+    best_id, best_sim = None, -1.0
+    for t_norm in _target_embeddings:
+        fid, sim = _search_db_for_target(t_norm, threshold=0.50)
+        if sim > best_sim:
+            best_sim, best_id = sim, fid
+
+    if best_id:
+        _target_face_id = best_id
+    # Don't downgrade to SEARCHING if we already had a match
+    total = len(_target_embeddings)
+    logger.info("SEARCH_PHOTO_ADDED total=%d matched_face_id=%s sim=%.4f", total, _target_face_id, best_sim)
+    return {"status": "photo_added", "total_photos": total, "matched_face_id": _target_face_id}
 
 
 @app.get("/search/status")
 def search_status():
     """Returns current search target state."""
-    return {"target_set": _target_embedding is not None, "matched_face_id": _target_face_id}
+    return {
+        "target_set": bool(_target_embeddings),
+        "matched_face_id": _target_face_id,
+        "total_photos": len(_target_embeddings),
+    }
 
 
 @app.post("/search/clear")
 def search_clear():
     """Clear the current search target."""
-    global _target_embedding, _target_face_id
-    _target_embedding = None
+    global _target_embeddings, _target_face_id
+    _target_embeddings = []
     _target_face_id = None
     logger.info("SEARCH_TARGET_CLEARED")
     return {"status": "cleared"}
+
+
+@app.get("/search/active-camera")
+def search_active_camera():
+    """Return the camera_id currently seeing the target face; falls back to first running cam."""
+    if _target_face_id and _target_face_id != "SEARCHING":
+        for cam_id, face_ids in _camera_last_resolved.items():
+            if _target_face_id in face_ids:
+                return {"active_camera": cam_id}
+    for cam_id, cam in _cameras.items():
+        if cam["thread"].is_alive():
+            return {"active_camera": cam_id}
+    return {"active_camera": None}
