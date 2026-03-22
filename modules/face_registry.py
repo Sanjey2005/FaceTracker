@@ -25,6 +25,8 @@ logger = logging.getLogger(__name__)
 class FaceRegistry:
     """FAISS IndexFlatIP registry for persistent face identity assignment."""
 
+    _EMBEDDING_ALPHA = 0.1  # weight for new embedding in running average
+
     def __init__(self, cfg: Config, db: Database) -> None:
         """Initialise the registry, load existing embeddings from the database.
 
@@ -36,6 +38,7 @@ class FaceRegistry:
         self.threshold = cfg.similarity_threshold
         self.index = faiss.IndexFlatIP(self.dim)
         self.face_ids: list[str] = []
+        self._vectors: list[np.ndarray] = []  # normalised embeddings, parallel to face_ids
         self.faiss_path = Path(cfg.faiss_index_path)
         self._cfg = cfg
         self.db = db
@@ -61,6 +64,7 @@ class FaceRegistry:
             norm_emb = self._normalize(embs[i])
             self.index.add(norm_emb.reshape(1, self.dim))
             self.face_ids.append(face_id)
+            self._vectors.append(norm_emb)
 
         logger.info("REGISTRY_LOADED count=%d", len(self.face_ids))
 
@@ -77,6 +81,33 @@ class FaceRegistry:
         if norm == 0.0:
             return np.zeros(self.dim, dtype=np.float32)
         return (embedding / norm).astype(np.float32)
+
+    def _rebuild_index(self) -> None:
+        """Rebuild FAISS index from self._vectors (used after embedding update)."""
+        self.index = faiss.IndexFlatIP(self.dim)
+        if self._vectors:
+            self.index.add(np.stack(self._vectors))
+
+    def _update_embedding_average(
+        self, idx: int, new_emb_norm: np.ndarray, face_id: str
+    ) -> None:
+        """Running-average update for a confirmed re-ID match.
+
+        Blends the stored embedding toward the new one with alpha=0.1,
+        re-normalises, updates FAISS in-memory and enqueues a DB write.
+
+        Args:
+            idx: Position of this face in self._vectors / self.face_ids.
+            new_emb_norm: L2-normalised embedding from the current frame.
+            face_id: Persistent face UUID for DB logging.
+        """
+        stored = self._vectors[idx]
+        averaged = (1 - self._EMBEDDING_ALPHA) * stored + self._EMBEDDING_ALPHA * new_emb_norm
+        averaged = self._normalize(averaged)
+        self._vectors[idx] = averaged
+        self._rebuild_index()
+        self.db.update_embedding(face_id, averaged)
+        logger.debug("EMBEDDING_UPDATED face_id=%s alpha=%.2f", face_id, self._EMBEDDING_ALPHA)
 
     def lookup_or_register(
         self, embedding: np.ndarray, frame_id: int = 0
@@ -111,14 +142,17 @@ class FaceRegistry:
             )
 
             if best_sim >= self.threshold:
-                matched_id = self.face_ids[idxs[0][0]]
+                matched_idx = int(idxs[0][0])
+                matched_id = self.face_ids[matched_idx]
                 logger.info("REID_MATCH face_id=%s sim=%.4f", matched_id, best_sim)
+                self._update_embedding_average(matched_idx, emb.squeeze(), matched_id)
                 return matched_id, "EXISTING"
 
         # Register new face
         new_id = str(uuid.uuid4())[:8]
         self.index.add(emb)
         self.face_ids.append(new_id)
+        self._vectors.append(emb.squeeze())
 
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
         self.db.register_face(new_id, embedding, timestamp)

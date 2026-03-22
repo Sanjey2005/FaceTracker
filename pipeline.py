@@ -29,6 +29,9 @@ from modules.utils import draw_overlay, format_timestamp
 
 logger = logging.getLogger(__name__)
 
+_QUALITY_BUFFER_MIN_SCORE = 0.60   # minimum det_score to buffer (below = skip)
+_QUALITY_BUFFER_MAX_FRAMES = 5     # flush buffer after this many acceptable frames
+
 
 class Pipeline:
     """End-to-end face tracking pipeline.
@@ -73,6 +76,7 @@ class Pipeline:
 
         self.frame_id = 0
         self.resolved_ids: dict[int, str] = {}  # tracker_id → face_id
+        self._quality_buffer: dict[int, dict] = {}  # tracker_id → {embedding, det_score, frame_count}
         self.device = get_device(cfg)
         self._shutdown_requested = False
 
@@ -136,18 +140,43 @@ class Pipeline:
                 if tid not in self.resolved_ids:
                     crop = self.embedder.crop_face(frame, track["bbox"])
                     if crop is not None:
-                        embedding = self.embedder.get_embedding(crop)
+                        embedding, det_score = self.embedder.get_embedding(crop)
                         if embedding is not None:
-                            face_id, status = self.registry.lookup_or_register(
-                                embedding, self.frame_id
-                            )
-                            self.resolved_ids[tid] = face_id
-
-                            if status == "NEW":
-                                age, gender = self.embedder.get_age_gender(crop)
-                                self.db.update_face_demographics(
-                                    face_id, age, gender
+                            if det_score > self.cfg.embedding_quality_threshold:
+                                # High quality — register/match immediately
+                                face_id, status = self.registry.lookup_or_register(
+                                    embedding, self.frame_id
                                 )
+                                self.resolved_ids[tid] = face_id
+                                if status == "NEW":
+                                    age, gender = self.embedder.get_age_gender(crop)
+                                    self.db.update_face_demographics(face_id, age, gender)
+                                self._quality_buffer.pop(tid, None)
+
+                            elif det_score >= _QUALITY_BUFFER_MIN_SCORE:
+                                # Medium quality — buffer until best frame or count reached
+                                if tid not in self._quality_buffer:
+                                    self._quality_buffer[tid] = {
+                                        "embedding": embedding,
+                                        "det_score": det_score,
+                                        "frame_count": 1,
+                                    }
+                                else:
+                                    if det_score > self._quality_buffer[tid]["det_score"]:
+                                        self._quality_buffer[tid]["embedding"] = embedding
+                                        self._quality_buffer[tid]["det_score"] = det_score
+                                    self._quality_buffer[tid]["frame_count"] += 1
+
+                                if self._quality_buffer[tid]["frame_count"] >= _QUALITY_BUFFER_MAX_FRAMES:
+                                    best = self._quality_buffer.pop(tid)
+                                    face_id, status = self.registry.lookup_or_register(
+                                        best["embedding"], self.frame_id
+                                    )
+                                    self.resolved_ids[tid] = face_id
+                                    if status == "NEW":
+                                        age, gender = self.embedder.get_age_gender(crop)
+                                        self.db.update_face_demographics(face_id, age, gender)
+                            # det_score < _QUALITY_BUFFER_MIN_SCORE: skip entirely
 
                 # ── Event logging ───────────────────────────────
                 if tid in self.resolved_ids:
@@ -172,6 +201,21 @@ class Pipeline:
             for tid in list(self.resolved_ids.keys()):
                 if tid not in active_ids and tid not in TRACK_STATES:
                     del self.resolved_ids[tid]
+
+            # Flush quality_buffer for tracks that have left without hitting high quality.
+            # Registers with best available embedding so nobody is silently dropped.
+            for tid in list(self._quality_buffer.keys()):
+                if tid not in active_ids:
+                    buffered = self._quality_buffer.pop(tid)
+                    face_id, status = self.registry.lookup_or_register(
+                        buffered["embedding"], self.frame_id
+                    )
+                    logger.warning(
+                        "LOW_QUALITY_REGISTRATION track=%d best_det_score=%.2f",
+                        tid, buffered["det_score"],
+                    )
+                    if status == "NEW":
+                        self.db.update_face_demographics(face_id, None, None)
 
             # ── Visitor count log (every 30 frames) ─────────────
             if self.frame_id % 30 == 0:

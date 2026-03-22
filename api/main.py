@@ -139,6 +139,14 @@ def _ensure_watchlist_schema() -> None:
                 )
             """)
             cur.execute("""
+                CREATE TABLE IF NOT EXISTS watchlist_embeddings (
+                    id           SERIAL PRIMARY KEY,
+                    watchlist_id INTEGER NOT NULL REFERENCES watchlist(id) ON DELETE CASCADE,
+                    embedding    BYTEA NOT NULL,
+                    added_at     TIMESTAMP DEFAULT NOW()
+                )
+            """)
+            cur.execute("""
                 CREATE TABLE IF NOT EXISTS alerts (
                     id             SERIAL PRIMARY KEY,
                     watchlist_id   INTEGER REFERENCES watchlist(id) ON DELETE CASCADE,
@@ -688,11 +696,20 @@ def stream_feed(camera_id: str = "cam_01"):
     frame_queue = cam["queue"]
     stop_event = cam["stop"]
 
+    frame_interval = 1.0 / 25  # 25 FPS cap
+    last_frame_time = 0.0
+
     def generate():
+        nonlocal last_frame_time
         while True:
             try:
                 frame = frame_queue.get(timeout=1.0)
-                _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                now = time.time()
+                if now - last_frame_time < frame_interval:
+                    time.sleep(0.001)
+                    continue
+                last_frame_time = now
+                _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
                 yield (
                     b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
                     + buf.tobytes()

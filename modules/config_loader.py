@@ -23,6 +23,7 @@ class Config:
     detection_skip_frames: int
     embedding_skip_frames: int
     similarity_threshold: float
+    embedding_quality_threshold: float
     min_track_frames: int
     tracker_max_age: int
     max_lost_frames: int
@@ -91,6 +92,7 @@ def load_config(path: str = "config.json") -> Config:
         detection_skip_frames=int(raw["detection_skip_frames"]),
         embedding_skip_frames=int(raw["embedding_skip_frames"]),
         similarity_threshold=float(raw["similarity_threshold"]),
+        embedding_quality_threshold=float(raw.get("embedding_quality_threshold", 0.85)),
         min_track_frames=int(raw["min_track_frames"]),
         tracker_max_age=int(raw["tracker_max_age"]),
         max_lost_frames=int(raw["max_lost_frames"]),

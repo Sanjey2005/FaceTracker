@@ -21,6 +21,7 @@ import cv2
 import numpy as np
 
 from modules.config_loader import Config
+from modules.rtsp_stream import RTSPStream
 
 logger = logging.getLogger(__name__)
 
@@ -43,9 +44,11 @@ class VideoCapture:
             cfg: Loaded Config dataclass instance.
         """
         if cfg.source == "rtsp":
+            # TCP is more stable than UDP on local networks and avoids
+            # frame reordering that contributes to buffer lag.
             # Must be set before any cv2.VideoCapture call.
-            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;udp"
-            logger.info("RTSP_TRANSPORT_SET rtsp_transport=udp")
+            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
+            logger.info("RTSP_TRANSPORT_SET rtsp_transport=tcp")
 
         self.source = cfg.source
         self.path   = cfg.video_path if cfg.source == "video" else cfg.rtsp_url
@@ -55,6 +58,7 @@ class VideoCapture:
         self.running = False
         self._cap: cv2.VideoCapture | None = None
         self._thread: threading.Thread | None = None
+        self._rtsp_stream: RTSPStream | None = None
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -63,9 +67,23 @@ class VideoCapture:
     def start(self) -> None:
         """Open the capture source and start the background reader thread.
 
+        For RTSP sources, delegates to RTSPStream which continuously grabs the
+        latest frame and discards buffered ones, eliminating accumulation lag.
+        For video files, uses the existing threaded cv2.VideoCapture reader.
+
         Raises:
-            RuntimeError: If the capture device cannot be opened.
+            RuntimeError: If the capture device cannot be opened (video files only).
         """
+        if self.source == "rtsp":
+            self._rtsp_stream = RTSPStream(self.path).start()
+            self.running = True
+            logger.info(
+                "CAPTURE_START source=rtsp path=%s via=RTSPStream connected=%s",
+                self.path,
+                self._rtsp_stream.is_connected,
+            )
+            return
+
         self._cap = cv2.VideoCapture(self.path, cv2.CAP_FFMPEG)
         self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
@@ -94,6 +112,8 @@ class VideoCapture:
     def stop(self) -> None:
         """Signal the reader thread to stop and release the capture device."""
         self.running = False
+        if self._rtsp_stream is not None:
+            self._rtsp_stream.stop()
         if self._cap is not None:
             self._cap.release()
         logger.info("CAPTURE_STOP source=%s", self.source)
@@ -135,6 +155,9 @@ class VideoCapture:
         Returns:
             BGR numpy array, or ``None`` if no frame has been captured yet.
         """
+        if self._rtsp_stream is not None:
+            ret, frame = self._rtsp_stream.read()
+            return frame if ret else None
         with self.lock:
             if self.frame is not None:
                 return self.frame.copy()
@@ -170,9 +193,14 @@ class VideoCapture:
     def is_running(self) -> bool:
         """Return ``True`` while the reader thread is active.
 
+        For RTSP sources, stays True even during reconnect attempts so the
+        pipeline loop keeps running rather than exiting on transient drops.
+
         Returns:
             Boolean running state.
         """
+        if self._rtsp_stream is not None:
+            return self._rtsp_stream._running
         return self.running
 
 

@@ -175,6 +175,45 @@ class Database:
                     message   TEXT
                 )
             """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS watchlist (
+                    id        SERIAL PRIMARY KEY,
+                    name      TEXT NOT NULL,
+                    embedding BYTEA NOT NULL,
+                    photo_b64 TEXT,
+                    added_at  TIMESTAMP DEFAULT NOW()
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS alerts (
+                    id             SERIAL PRIMARY KEY,
+                    watchlist_id   INTEGER REFERENCES watchlist(id) ON DELETE CASCADE,
+                    watchlist_name TEXT,
+                    face_id        TEXT,
+                    camera_id      TEXT,
+                    snapshot_b64   TEXT,
+                    matched_at     TIMESTAMP DEFAULT NOW(),
+                    similarity     FLOAT,
+                    acknowledged   BOOLEAN DEFAULT FALSE
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS watchlist_embeddings (
+                    id           SERIAL PRIMARY KEY,
+                    watchlist_id INTEGER REFERENCES watchlist(id) ON DELETE CASCADE,
+                    embedding    BYTEA NOT NULL,
+                    added_at     TIMESTAMP DEFAULT NOW()
+                )
+            """)
+            # Idempotent migration: seed watchlist_embeddings from existing watchlist rows
+            cur.execute("""
+                INSERT INTO watchlist_embeddings (watchlist_id, embedding, added_at)
+                SELECT w.id, w.embedding, w.added_at
+                FROM watchlist w
+                WHERE w.id NOT IN (
+                    SELECT DISTINCT watchlist_id FROM watchlist_embeddings
+                )
+            """)
         conn.commit()
         logger.info("DB_SCHEMA_READY")
 
@@ -213,6 +252,19 @@ class Database:
                     (face_id, timestamp, timestamp, blob, age, gender),
                 )
         logger.info("FACE_REGISTERED face_id=%s", face_id)
+
+    def update_embedding(self, face_id: str, embedding: np.ndarray) -> None:
+        """Update the stored embedding for an existing face (async via write queue).
+
+        Args:
+            face_id: The face UUID to update.
+            embedding: New L2-normalised 512-dim float32 array.
+        """
+        blob = psycopg2.Binary(embedding.astype(np.float32).tobytes())
+        self._enqueue(
+            "UPDATE faces SET embedding=%s WHERE face_id=%s",
+            (blob, face_id),
+        )
 
     def update_face_demographics(
         self, face_id: str, age: int | None, gender: str | None

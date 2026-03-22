@@ -108,14 +108,16 @@ class FaceEmbedder:
 
         return crop
 
-    def get_embedding(self, face_crop: np.ndarray) -> np.ndarray | None:
+    def get_embedding(self, face_crop: np.ndarray) -> tuple[np.ndarray | None, float]:
         """Compute a 512-dim embedding for a face crop.
 
         Args:
             face_crop: BGR face crop (at least 64×64).
 
         Returns:
-            512-dim float32 numpy array, or None if InsightFace finds no face.
+            Tuple of (embedding, det_score) where embedding is a 512-dim float32
+            array (or None if no face detected) and det_score is InsightFace's
+            detection confidence (0.0 if no face detected).
         """
         img = self._apply_clahe(face_crop) if self.use_clahe else face_crop.copy()
 
@@ -129,13 +131,15 @@ class FaceEmbedder:
         elapsed_ms = (time.perf_counter() - t0) * 1000
 
         if not faces:
-            return None
+            return None, 0.0
 
+        det_score = float(faces[0].det_score)
         embedding = faces[0].embedding.astype(np.float32)
         logger.info(
-            "EMBEDDING_GENERATED shape=%d time_ms=%.1f", embedding.shape[0], elapsed_ms
+            "EMBEDDING_GENERATED shape=%d det_score=%.4f time_ms=%.1f",
+            embedding.shape[0], det_score, elapsed_ms,
         )
-        return embedding
+        return embedding, det_score
 
     def get_age_gender(
         self, face_crop: np.ndarray
@@ -175,9 +179,9 @@ if __name__ == "__main__":
     cfg = load_config()
     embedder = FaceEmbedder(cfg)
     dummy_crop = np.random.randint(0, 255, (112, 112, 3), dtype=np.uint8)
-    emb = embedder.get_embedding(dummy_crop)
+    emb, det_score = embedder.get_embedding(dummy_crop)
     if emb is not None:
-        print(f"Embedding shape: {emb.shape}")
+        print(f"Embedding shape: {emb.shape}, det_score: {det_score:.4f}")
     else:
         print("No face in dummy crop (expected on random noise)")
     print("face_embedder.py self-test passed.")

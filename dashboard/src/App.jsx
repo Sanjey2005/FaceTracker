@@ -70,6 +70,22 @@ export default function App() {
   // Settings page re-render trigger
   const [settingsTick, setSettingsTick] = useState(0)
 
+  // Camera Groups state
+  const [savedCameras, setSavedCameras] = useState(() =>
+    JSON.parse(localStorage.getItem('ft_saved_cameras') || '[]')
+  )
+  const [cameraGroups, setCameraGroups] = useState(() =>
+    JSON.parse(localStorage.getItem('ft_camera_groups') || '[]')
+  )
+  const [editingGroupId, setEditingGroupId] = useState(null)
+  const [openDropdownGroupId, setOpenDropdownGroupId] = useState(null)
+  const [groupToast, setGroupToast] = useState(null)
+  const [addCameraTab, setAddCameraTab] = useState({}) // { [groupId]: 'saved' | 'new' }
+  const [newCamForm, setNewCamForm] = useState({})     // { [groupId]: { name, source, url, error } }
+  const [pendingCameraStart, setPendingCameraStart] = useState(null) // array of camera names to start, or null
+  const editingGroupInputRef = useRef(null)
+  const dropdownRef = useRef(null)
+
   // Watchlist page state
   const [watchlistEntries, setWatchlistEntries] = useState([])
   const [showAddPersonModal, setShowAddPersonModal] = useState(false)
@@ -161,11 +177,27 @@ export default function App() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [showAlerts])
 
+  // Close camera group add-camera dropdown when clicking outside
+  useEffect(() => {
+    if (!openDropdownGroupId) return
+    const handler = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setOpenDropdownGroupId(null)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [openDropdownGroupId])
+
   // Re-sync dashboard camera tiles from localStorage when returning to dashboard
   // Also fetch watchlist entries when navigating to watchlist page
   useEffect(() => {
     if (activePage === 'dashboard') {
       setDashboardSavedCameras(JSON.parse(localStorage.getItem('ft_saved_cameras') || '[]'))
+    }
+    if (activePage === 'settings') {
+      setSavedCameras(JSON.parse(localStorage.getItem('ft_saved_cameras') || '[]'))
+      setCameraGroups(JSON.parse(localStorage.getItem('ft_camera_groups') || '[]'))
     }
     if (activePage === 'watchlist') {
       fetch(`${API}/watchlist`).then(r => r.json()).then(setWatchlistEntries).catch(console.error)
@@ -193,6 +225,29 @@ export default function App() {
     }, 2000)
     return () => clearInterval(interval)
   }, [autoFollow, activeCam, featuredCamera])
+
+  // Start cameras from Camera Groups (Settings page) after navigation completes
+  useEffect(() => {
+    if (activePage !== 'cameras' || pendingCameraStart === null) return
+    const allSaved = JSON.parse(localStorage.getItem('ft_saved_cameras') || '[]')
+    const toStart = pendingCameraStart.map(name => allSaved.find(s => s.name === name)).filter(Boolean)
+    if (toStart.length > 0) {
+      const newCams = toStart.map((s, i) => ({
+        id: `cam_0${i + 1}`,
+        name: s.name,
+        source: s.source,
+        path: s.path || '',
+        rtspUrl: s.rtspUrl || '',
+        status: 'idle',
+      }))
+      setNumCameras(toStart.length)
+      setCameras(newCams)
+      newCams.forEach(cam => startCameraConfig(cam))
+      setGroupToast({ message: `Starting ${toStart.length} camera(s)...`, type: 'info' })
+      setTimeout(() => setGroupToast(null), 4000)
+    }
+    setPendingCameraStart(null)
+  }, [activePage, pendingCameraStart])
 
   const anyRunning = cameras.some(c => c.status === 'running')
   const activeCamObj = cameras.find(c => c.id === activeCam)
@@ -231,8 +286,7 @@ export default function App() {
     setCameras(prev => prev.map((c, i) => i === idx ? { ...c, rtspUrl: url } : c))
   }
 
-  const handleCamStart = async (idx) => {
-    const cam = cameras[idx]
+  const startCameraConfig = async (cam) => {
     const body = {
       camera_id: cam.id,
       source: cam.source,
@@ -245,9 +299,9 @@ export default function App() {
       body: JSON.stringify(body),
     })
     if (res.ok) {
-      setCameras(prev => prev.map((c, i) => i === idx ? { ...c, status: 'running' } : c))
-      if (!activeCam) setActiveCam(cam.id)
-      if (!featuredCamera) setFeaturedCamera(cam.id)
+      setCameras(prev => prev.map(c => c.id === cam.id ? { ...c, status: 'running' } : c))
+      setActiveCam(prev => prev || cam.id)
+      setFeaturedCamera(prev => prev || cam.id)
       // Auto-save camera config to localStorage
       const savedCams = JSON.parse(localStorage.getItem('ft_saved_cameras') || '[]')
       const record = { name: cam.name, source: cam.source, path: cam.path, rtspUrl: cam.rtspUrl }
@@ -255,6 +309,10 @@ export default function App() {
       if (existIdx >= 0) savedCams[existIdx] = record; else savedCams.push(record)
       localStorage.setItem('ft_saved_cameras', JSON.stringify(savedCams))
     }
+  }
+
+  const handleCamStart = (idx) => {
+    startCameraConfig(cameras[idx])
   }
 
   const handleCamStop = async (camId) => {
@@ -404,6 +462,11 @@ export default function App() {
       fetch(`${API}/alerts/${a.id}/acknowledge`, { method: 'POST' })
     ))
     setWatchlistAlerts([])
+  }
+
+  const saveGroups = (groups) => {
+    setCameraGroups(groups)
+    localStorage.setItem('ft_camera_groups', JSON.stringify(groups))
   }
 
   // ── Analytics & Settings handlers ──
@@ -1004,6 +1067,19 @@ export default function App() {
         {/* ── Cameras Page ── */}
         {activePage === 'cameras' && (
           <div>
+            {/* Group load toast */}
+            {groupToast && (
+              <div className={`mb-4 flex items-center gap-3 px-4 py-3 rounded-xl border text-sm font-mono ${
+                groupToast.type === 'warning'
+                  ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                  : 'bg-blue-500/10 border-blue-500/30 text-blue-400'
+              }`}>
+                <span className="material-symbols-outlined text-[18px]">
+                  {groupToast.type === 'warning' ? 'warning' : 'info'}
+                </span>
+                {groupToast.message}
+              </div>
+            )}
             {/* Page header */}
             <div className="flex justify-between items-center mb-8">
               <h2 className="text-2xl font-bold text-white">Live Monitoring</h2>
@@ -1350,57 +1426,283 @@ export default function App() {
 
         {/* ── Settings Page ── */}
         {activePage === 'settings' && (() => {
-          const savedCameras = JSON.parse(localStorage.getItem('ft_saved_cameras') || '[]')
-          void settingsTick // consume to trigger re-render on remove
+          void settingsTick
           return (
-            <div className="max-w-2xl">
+            <div className="max-w-4xl">
               <div className="mb-8">
                 <h2 className="text-2xl font-bold text-white">Settings</h2>
               </div>
 
-              {/* Section 1: Saved Cameras */}
-              <div className="card-neutral p-6 rounded-xl mb-6">
-                <div className="flex justify-between items-center mb-6">
+              {/* Section 1: Camera Groups */}
+              <div className="mb-6">
+                <div className="flex justify-between items-center mb-4">
                   <div>
-                    <h3 className="text-lg font-medium text-white">Saved Cameras</h3>
-                    <p className="text-xs font-mono text-neutral-500 mt-1">Camera configs saved from previous sessions</p>
+                    <h3 className="text-lg font-medium text-white">Camera Groups</h3>
+                    <p className="text-xs font-mono text-neutral-500 mt-1">Organise and launch cameras by group</p>
                   </div>
-                  {savedCameras.length > 0 && (
-                    <button
-                      onClick={handleLoadSavedCameras}
-                      className="flex items-center gap-2 px-4 py-2 bg-white text-black rounded-lg text-xs font-bold hover:bg-neutral-200 transition-colors"
-                    >
-                      <span className="material-symbols-outlined text-[14px]">play_arrow</span>
-                      Load All
-                    </button>
-                  )}
+                  <button
+                    onClick={() => {
+                      const newGroup = { id: Date.now().toString(), name: 'New Group', cameraIndices: [] }
+                      saveGroups([...cameraGroups, newGroup])
+                      setEditingGroupId(newGroup.id)
+                      setTimeout(() => editingGroupInputRef.current?.focus(), 50)
+                    }}
+                    className="px-4 py-2 bg-white text-black text-sm font-bold rounded-lg hover:bg-neutral-200 transition-colors"
+                  >+ New Group</button>
                 </div>
-                {savedCameras.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-8 border border-dashed border-surface-border rounded-xl">
-                    <span className="material-symbols-outlined text-3xl text-neutral-600 mb-2">videocam_off</span>
-                    <p className="text-xs font-mono text-neutral-500">No saved cameras yet</p>
-                    <p className="text-[0.625rem] font-mono text-neutral-600 mt-1">Start a camera on the Cameras page to save it here</p>
+
+                {cameraGroups.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 border-2 border-dashed border-surface-border rounded-xl">
+                    <span className="material-symbols-outlined text-4xl text-neutral-600 mb-3">grid_view</span>
+                    <p className="text-sm font-medium text-neutral-400">No camera groups yet</p>
+                    <p className="text-xs font-mono text-neutral-600 mt-1">Create a group to organise and launch cameras together</p>
+                    <button
+                      onClick={() => {
+                        const newGroup = { id: Date.now().toString(), name: 'New Group', cameraIndices: [] }
+                        saveGroups([newGroup])
+                        setEditingGroupId(newGroup.id)
+                        setTimeout(() => editingGroupInputRef.current?.focus(), 50)
+                      }}
+                      className="mt-4 px-4 py-2 bg-white text-black text-sm font-bold rounded-lg hover:bg-neutral-200 transition-colors"
+                    >+ Create First Group</button>
                   </div>
                 ) : (
-                  <div className="flex flex-col gap-3">
-                    {savedCameras.map((cam, idx) => (
-                      <div key={idx} className="flex items-center gap-4 bg-surface-variant p-4 rounded-lg border border-surface-border">
-                        <span className="material-symbols-outlined text-neutral-400 flex-shrink-0">videocam</span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-white truncate">{cam.name}</p>
-                          <p className="text-[0.625rem] font-mono text-neutral-500 truncate mt-0.5">
-                            {cam.source === 'rtsp' ? cam.rtspUrl : (cam.path ? cam.path.split(/[/\\]/).pop() : 'No file')}
-                          </p>
+                  <div>
+                    {cameraGroups.map(group => {
+                      const groupCameras = group.cameraIndices.map(i => savedCameras[i]).filter(Boolean)
+                      const availableToAdd = savedCameras
+                        .map((cam, i) => ({ cam, i }))
+                        .filter(({ i }) => !group.cameraIndices.includes(i))
+                      return (
+                        <div key={group.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 mb-4">
+                          {/* Card header */}
+                          <div className="flex justify-between items-center mb-4">
+                            <div className="flex items-center gap-2">
+                              {editingGroupId === group.id ? (
+                                <input
+                                  ref={editingGroupInputRef}
+                                  type="text"
+                                  defaultValue={group.name}
+                                  onBlur={(e) => {
+                                    saveGroups(cameraGroups.map(g =>
+                                      g.id === group.id ? { ...g, name: e.target.value || g.name } : g
+                                    ))
+                                    setEditingGroupId(null)
+                                  }}
+                                  onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur() }}
+                                  className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1 text-white text-sm font-medium outline-none focus:border-neutral-500 transition-colors"
+                                />
+                              ) : (
+                                <>
+                                  <span className="text-sm font-medium text-white">{group.name}</span>
+                                  <button
+                                    onClick={() => {
+                                      setEditingGroupId(group.id)
+                                      setTimeout(() => editingGroupInputRef.current?.focus(), 50)
+                                    }}
+                                    className="text-neutral-500 hover:text-white transition-colors leading-none"
+                                    title="Rename group"
+                                  >✏️</button>
+                                </>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => {
+                                  const names = groupCameras.map(c => c.name)
+                                  setPendingCameraStart(names)
+                                  setActivePage('cameras')
+                                }}
+                                className="px-3 py-1.5 bg-white text-black text-xs font-bold rounded-lg hover:bg-neutral-200 transition-colors"
+                              >▶ Start All</button>
+                              <div className="relative">
+                                <button
+                                  onClick={() => setOpenDropdownGroupId(openDropdownGroupId === group.id ? null : group.id)}
+                                  className="px-3 py-1.5 bg-zinc-700 text-white text-xs font-bold rounded-lg hover:bg-zinc-600 transition-colors"
+                                >+ Add Camera</button>
+                                {openDropdownGroupId === group.id && (
+                                  <div ref={dropdownRef} className="absolute right-0 top-full mt-1 bg-zinc-800 rounded-lg shadow-xl z-50 border border-zinc-700 overflow-hidden" style={{ minWidth: '320px' }}>
+                                    {/* Tab pills */}
+                                    <div className="flex gap-1.5 p-2 border-b border-zinc-700">
+                                      <button
+                                        onClick={() => setAddCameraTab(prev => ({ ...prev, [group.id]: 'saved' }))}
+                                        className={`flex-1 py-1 text-xs font-bold rounded-md transition-colors ${(addCameraTab[group.id] ?? 'saved') === 'saved' ? 'bg-white text-black' : 'bg-zinc-700 text-zinc-300 hover:bg-zinc-600'}`}
+                                      >Saved</button>
+                                      <button
+                                        onClick={() => setAddCameraTab(prev => ({ ...prev, [group.id]: 'new' }))}
+                                        className={`flex-1 py-1 text-xs font-bold rounded-md transition-colors ${(addCameraTab[group.id] ?? 'saved') === 'new' ? 'bg-white text-black' : 'bg-zinc-700 text-zinc-300 hover:bg-zinc-600'}`}
+                                      >New Camera</button>
+                                    </div>
+
+                                    {/* Tab 1: Saved Cameras */}
+                                    {(addCameraTab[group.id] ?? 'saved') === 'saved' && (
+                                      <div className="overflow-y-auto" style={{ maxHeight: '340px' }}>
+                                        {availableToAdd.length === 0 ? (
+                                          <p className="px-4 py-3 text-xs font-mono text-zinc-500">All saved cameras already added</p>
+                                        ) : (
+                                          availableToAdd.map(({ cam, i }) => {
+                                            const url = cam.source === 'rtsp'
+                                              ? (cam.rtspUrl?.length > 35 ? cam.rtspUrl.slice(0, 35) + '…' : cam.rtspUrl)
+                                              : (cam.path ? cam.path.split(/[/\\]/).pop() : 'video file')
+                                            return (
+                                              <div key={i} className="flex items-center gap-3 px-4 py-2.5 hover:bg-zinc-700 transition-colors border-b border-zinc-700 last:border-0">
+                                                <div className="flex-1 min-w-0">
+                                                  <p className="text-sm text-white font-medium truncate">{cam.name}</p>
+                                                  <p className="text-xs font-mono text-zinc-500 truncate">{url}</p>
+                                                </div>
+                                                <button
+                                                  onClick={() => {
+                                                    saveGroups(cameraGroups.map(g =>
+                                                      g.id === group.id
+                                                        ? { ...g, cameraIndices: [...g.cameraIndices, i] }
+                                                        : g
+                                                    ))
+                                                    setOpenDropdownGroupId(null)
+                                                  }}
+                                                  className="text-xs font-bold text-white bg-zinc-600 hover:bg-zinc-500 px-2 py-1 rounded transition-colors flex-shrink-0"
+                                                >Add to Group</button>
+                                              </div>
+                                            )
+                                          })
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {/* Tab 2: Add New Camera */}
+                                    {(addCameraTab[group.id] ?? 'saved') === 'new' && (() => {
+                                      const form = newCamForm[group.id] || { name: '', source: 'rtsp', url: '', error: '' }
+                                      const urlPlaceholder = form.source === 'rtsp'
+                                        ? 'rtsp://192.168.1.x:554/stream'
+                                        : form.source === 'http'
+                                        ? 'http://192.168.1.x:8080/video'
+                                        : 'Video Datasets/recording.mp4'
+                                      return (
+                                        <div className="p-4 flex flex-col gap-3">
+                                          <div className="flex flex-col gap-1">
+                                            <label className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider">Camera Name</label>
+                                            <input
+                                              type="text"
+                                              placeholder="e.g. Lobby Camera"
+                                              value={form.name}
+                                              onChange={(e) => setNewCamForm(prev => ({ ...prev, [group.id]: { ...form, name: e.target.value, error: '' } }))}
+                                              className="bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-1.5 text-sm text-white placeholder-zinc-500 outline-none focus:border-zinc-400 transition-colors"
+                                            />
+                                          </div>
+                                          <div className="flex flex-col gap-1">
+                                            <label className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider">Source Type</label>
+                                            <select
+                                              value={form.source}
+                                              onChange={(e) => setNewCamForm(prev => ({ ...prev, [group.id]: { ...form, source: e.target.value, url: '', error: '' } }))}
+                                              className="bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-1.5 text-sm text-white outline-none focus:border-zinc-400 transition-colors"
+                                            >
+                                              <option value="rtsp">RTSP</option>
+                                              <option value="http">HTTP</option>
+                                              <option value="video">Local File</option>
+                                            </select>
+                                          </div>
+                                          <div className="flex flex-col gap-1">
+                                            <label className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider">URL / Path</label>
+                                            <input
+                                              type="text"
+                                              placeholder={urlPlaceholder}
+                                              value={form.url}
+                                              onChange={(e) => setNewCamForm(prev => ({ ...prev, [group.id]: { ...form, url: e.target.value, error: '' } }))}
+                                              className="bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-1.5 text-sm text-white placeholder-zinc-500 outline-none focus:border-zinc-400 transition-colors"
+                                            />
+                                          </div>
+                                          {form.error && (
+                                            <p className="text-xs text-red-400 font-mono">{form.error}</p>
+                                          )}
+                                          <button
+                                            onClick={() => {
+                                              const name = form.name.trim()
+                                              const url = form.url.trim()
+                                              if (!name) {
+                                                setNewCamForm(prev => ({ ...prev, [group.id]: { ...form, error: 'Camera name is required' } }))
+                                                return
+                                              }
+                                              if (!url) {
+                                                setNewCamForm(prev => ({ ...prev, [group.id]: { ...form, error: 'URL or path is required' } }))
+                                                return
+                                              }
+                                              const allSaved = JSON.parse(localStorage.getItem('ft_saved_cameras') || '[]')
+                                              if (allSaved.find(c => c.name === name)) {
+                                                setNewCamForm(prev => ({ ...prev, [group.id]: { ...form, error: `A camera named '${name}' already exists` } }))
+                                                return
+                                              }
+                                              const newCam = { name, source: form.source, path: url, rtspUrl: url }
+                                              const updated = [...allSaved, newCam]
+                                              localStorage.setItem('ft_saved_cameras', JSON.stringify(updated))
+                                              setSavedCameras(updated)
+                                              saveGroups(cameraGroups.map(g =>
+                                                g.id === group.id
+                                                  ? { ...g, cameraIndices: [...g.cameraIndices, updated.length - 1] }
+                                                  : g
+                                              ))
+                                              setNewCamForm(prev => ({ ...prev, [group.id]: { name: '', source: 'rtsp', url: '', error: '' } }))
+                                              setOpenDropdownGroupId(null)
+                                            }}
+                                            className="w-full py-2 bg-white text-black text-xs font-bold rounded-lg hover:bg-neutral-200 transition-colors"
+                                          >Add &amp; Save to Group</button>
+                                        </div>
+                                      )
+                                    })()}
+                                  </div>
+                                )}
+                              </div>
+                              <button
+                                onClick={() => {
+                                  if (window.confirm(`Delete group '${group.name}'?`)) {
+                                    saveGroups(cameraGroups.filter(g => g.id !== group.id))
+                                  }
+                                }}
+                                className="px-3 py-1.5 bg-zinc-800 text-zinc-500 hover:text-red-400 text-xs font-bold rounded-lg hover:bg-zinc-700 transition-colors"
+                              >🗑</button>
+                            </div>
+                          </div>
+                          {/* Camera list */}
+                          {groupCameras.length === 0 ? (
+                            <p className="text-zinc-500 text-sm italic">No cameras in this group — click + Add Camera</p>
+                          ) : (
+                            <div className="flex flex-col gap-2">
+                              {group.cameraIndices.map((camIdx) => {
+                                const cam = savedCameras[camIdx]
+                                if (!cam) return null
+                                const rawUrl = cam.source === 'rtsp' ? cam.rtspUrl : (cam.path ? cam.path.split(/[/\\]/).pop() : 'video file')
+                                const truncUrl = rawUrl?.length > 35 ? rawUrl.slice(0, 35) + '…' : rawUrl
+                                return (
+                                  <div key={camIdx} className="flex items-center gap-3 bg-zinc-800/60 rounded-lg px-3 py-2">
+                                    <span className="material-symbols-outlined text-[16px] text-zinc-500 flex-shrink-0">videocam</span>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm text-white font-medium truncate">{cam.name}</p>
+                                      <p className="text-xs font-mono text-zinc-500 truncate">{truncUrl}</p>
+                                    </div>
+                                    <button
+                                      onClick={() => {
+                                        setPendingCameraStart([cam.name])
+                                        setActivePage('cameras')
+                                      }}
+                                      className="text-xs bg-zinc-700 text-white px-2 py-1 rounded hover:bg-zinc-600 transition-colors flex-shrink-0"
+                                    >▶ Start</button>
+                                    <button
+                                      onClick={() => {
+                                        saveGroups(cameraGroups.map(g =>
+                                          g.id === group.id
+                                            ? { ...g, cameraIndices: g.cameraIndices.filter(ci => ci !== camIdx) }
+                                            : g
+                                        ))
+                                      }}
+                                      className="text-xs text-zinc-500 hover:text-red-400 transition-colors flex-shrink-0 px-1"
+                                      title="Remove from group"
+                                    >✕</button>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )}
                         </div>
-                        <span className={`text-[0.625rem] font-mono font-bold uppercase px-2 py-0.5 rounded-full border flex-shrink-0 ${cam.source === 'rtsp' ? 'text-blue-400 border-blue-400/30 bg-blue-400/10' : 'text-neutral-400 border-neutral-400/30 bg-neutral-400/10'}`}>
-                          {cam.source === 'rtsp' ? 'RTSP' : 'Video'}
-                        </span>
-                        <button
-                          onClick={() => handleRemoveSavedCamera(idx)}
-                          className="text-[0.625rem] font-mono text-neutral-500 hover:text-error border border-surface-border hover:border-error/30 px-3 py-1.5 rounded-lg transition-colors flex-shrink-0"
-                        >Remove</button>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 )}
               </div>

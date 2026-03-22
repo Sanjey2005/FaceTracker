@@ -22,6 +22,20 @@ logger = logging.getLogger(__name__)
 _MIN_AREA = 1600  # 40 × 40 px minimum face area
 
 
+class Detection(dict):
+    """Dict subclass that exposes keys as attributes.
+
+    Allows downstream code to access fields via either dict syntax
+    (``d["bbox"]``) or attribute syntax (``d.bbox``, ``d.det_score``).
+    """
+
+    def __getattr__(self, key: str):
+        try:
+            return self[key]
+        except KeyError:
+            raise AttributeError(key)
+
+
 class FaceDetector:
     """YOLOv8-based face detector.
 
@@ -73,6 +87,7 @@ class FaceDetector:
             conf=self.confidence,
             device=self.device,
             verbose=False,
+            imgsz=640,
         )
 
         detections: list[dict] = []
@@ -89,7 +104,7 @@ class FaceDetector:
                 if conf < self.confidence:
                     continue
 
-                detections.append({"bbox": [x1, y1, x2, y2], "confidence": conf, "area": area})
+                detections.append(Detection(bbox=[x1, y1, x2, y2], confidence=conf, area=area, det_score=conf))
 
         if detections:
             h, w = frame.shape[:2]
