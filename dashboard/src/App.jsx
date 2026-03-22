@@ -62,6 +62,7 @@ export default function App() {
   // Notifications (tracking events — used for internal badge only)
   const [alerts, setAlerts] = useState([])
   const [showAlerts, setShowAlerts] = useState(false)
+  const alertsRef = useRef(null)
   const lastEventTimestampRef = useRef(null)
   const liveFeedRef = useRef(null)
   // Analytics page pagination
@@ -76,6 +77,7 @@ export default function App() {
   const [addPersonFile, setAddPersonFile] = useState(null)
   const [addPersonPreview, setAddPersonPreview] = useState(null)
   const [addPersonLoading, setAddPersonLoading] = useState(false)
+  const [addPersonError, setAddPersonError] = useState('')
 
   // Watchlist alerts — polled from /alerts?unacknowledged_only=true every 5s
   const [watchlistAlerts, setWatchlistAlerts] = useState([])
@@ -146,6 +148,18 @@ export default function App() {
     const id = setInterval(fetchWatchlistAlerts, 5000)
     return () => clearInterval(id)
   }, [])
+
+  // Close alerts dropdown when clicking outside it
+  useEffect(() => {
+    if (!showAlerts) return
+    const handleClickOutside = (e) => {
+      if (alertsRef.current && !alertsRef.current.contains(e.target)) {
+        setShowAlerts(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showAlerts])
 
   // Re-sync dashboard camera tiles from localStorage when returning to dashboard
   // Also fetch watchlist entries when navigating to watchlist page
@@ -342,19 +356,37 @@ export default function App() {
   const handleAddPerson = async () => {
     if (!addPersonName.trim() || !addPersonFile) return
     setAddPersonLoading(true)
+    setAddPersonError('')
     try {
       const form = new FormData()
       form.append('name', addPersonName.trim())
       form.append('photo', addPersonFile)
       const res = await fetch(`${API}/watchlist/add`, { method: 'POST', body: form })
-      if (!res.ok) { const e = await res.json(); alert(e.detail); return }
+      if (!res.ok) {
+        const e = await res.json()
+        throw new Error(e.detail || 'Failed to add person')
+      }
+      // Success — close modal and refresh list
       setShowAddPersonModal(false)
       setAddPersonName('')
       setAddPersonFile(null)
       setAddPersonPreview(null)
+      setAddPersonError('')
       fetch(`${API}/watchlist`).then(r => r.json()).then(setWatchlistEntries)
-    } catch (err) { console.error('Add to watchlist failed', err) }
-    finally { setAddPersonLoading(false) }
+    } catch (err) {
+      console.error('Add to watchlist failed', err)
+      setAddPersonError(err.message || 'Something went wrong')
+    } finally {
+      setAddPersonLoading(false)
+    }
+  }
+
+  const handleCloseAddPersonModal = () => {
+    setShowAddPersonModal(false)
+    setAddPersonName('')
+    setAddPersonFile(null)
+    setAddPersonPreview(null)
+    setAddPersonError('')
   }
 
   const handleRemoveWatchlistEntry = async (id) => {
@@ -492,8 +524,7 @@ export default function App() {
             <span className="text-[0.6875rem] font-mono text-tertiary uppercase tracking-tighter">Live</span>
           </div>
           <div className="flex items-center gap-3 text-on-surface-variant">
-            <span className="material-symbols-outlined cursor-pointer hover:text-white transition-colors">refresh</span>
-            <div className="relative">
+            <div ref={alertsRef} className="relative">
               <span
                 className="material-symbols-outlined cursor-pointer hover:text-white transition-colors"
                 onClick={() => setShowAlerts(a => !a)}
@@ -553,7 +584,6 @@ export default function App() {
                 </div>
               )}
             </div>
-            <span className="material-symbols-outlined cursor-pointer hover:text-white transition-colors">help</span>
             <button
               onClick={handleLock}
               className="flex items-center gap-1.5 text-[0.625rem] font-mono text-neutral-500 hover:text-white border border-surface-border px-2.5 py-1.5 rounded-lg transition-colors uppercase tracking-wider"
@@ -562,57 +592,14 @@ export default function App() {
               <span className="material-symbols-outlined text-[14px]">lock</span>
               Lock
             </button>
-            <div className="h-8 w-8 rounded-full bg-surface-container-highest border border-surface-border overflow-hidden">
-              <img alt="User profile"
-                src="https://lh3.googleusercontent.com/aida-public/AB6AXuCY8QjIgA7_z2ByzCw5yVyGJp2H2Ghiy9NOful5RiWKFhtC5vzlWYqVQYh7XyhvW4VVgej3e69KslEOBr8wlEJYtRt6EgOpeptG70phUAVDgv5Ipj3BhDiaD1tR2_6qEu3WWyDUGoKbOLp5TJH0yRNKkhPb1AoYt7sejzBnifPAnCbK_4HPfwbywAvjg_nPxcNMMzq_foGrhpuGu39w2QYJQpOpbeqPIO8RgWqcU4uVXPUcB41vDwnKjRaXcWR-flpLmwrbaZN8D1Ng" />
-            </div>
           </div>
         </div>
       </header>
 
-      {/* Side Navigation Rail */}
-      <aside className="fixed left-0 top-16 bottom-0 w-20 bg-black border-r border-surface-border flex flex-col items-center py-6 gap-8 z-40">
-        <div
-          className={`p-3 cursor-pointer rounded-lg transition-all duration-200 ${activePage === 'dashboard' ? 'text-white' : 'text-on-surface-variant hover:bg-surface-variant hover:text-white'}`}
-          onClick={() => setActivePage('dashboard')}
-        >
-          <span className="material-symbols-outlined">dashboard</span>
-        </div>
-        <div
-          className={`p-3 cursor-pointer rounded-lg transition-all duration-200 ${activePage === 'cameras' ? 'text-white' : 'text-on-surface-variant hover:bg-surface-variant hover:text-white'}`}
-          onClick={() => setActivePage('cameras')}
-        >
-          <span className="material-symbols-outlined">videocam</span>
-        </div>
-        <div
-          className={`p-3 cursor-pointer rounded-lg transition-all duration-200 ${activePage === 'analytics' ? 'text-white' : 'text-on-surface-variant hover:bg-surface-variant hover:text-white'}`}
-          onClick={() => { setActivePage('analytics'); setEventsPage(0) }}
-        >
-          <span className="material-symbols-outlined">bar_chart</span>
-        </div>
-        <div
-          className={`p-3 cursor-pointer rounded-lg transition-all duration-200 ${activePage === 'settings' ? 'text-white' : 'text-on-surface-variant hover:bg-surface-variant hover:text-white'}`}
-          onClick={() => setActivePage('settings')}
-        >
-          <span className="material-symbols-outlined">settings</span>
-        </div>
-        <div
-          className={`relative p-3 cursor-pointer rounded-lg transition-all duration-200 ${activePage === 'watchlist' ? 'text-white' : 'text-on-surface-variant hover:bg-surface-variant hover:text-white'}`}
-          onClick={() => setActivePage('watchlist')}
-        >
-          <span className="material-symbols-outlined">person_search</span>
-          {watchlistAlerts.length > 0 && (
-            <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-          )}
-        </div>
-        <div className="mt-auto flex flex-col gap-4">
-          <span className="material-symbols-outlined text-neutral-600 hover:text-white cursor-pointer">support_agent</span>
-          <span className="material-symbols-outlined text-neutral-600 hover:text-white cursor-pointer">terminal</span>
-        </div>
-      </aside>
+
 
       {/* Main Content */}
-      <main className="mt-20 p-8 max-w-[1440px] mx-auto ml-20">
+      <main className="mt-20 p-8 max-w-[1440px] mx-auto">
 
         {/* ── Dashboard Page ── */}
         {activePage === 'dashboard' && (
@@ -1502,7 +1489,7 @@ export default function App() {
             {showAddPersonModal && (
               <div
                 className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
-                onClick={() => { setShowAddPersonModal(false); setAddPersonName(''); setAddPersonFile(null); setAddPersonPreview(null) }}
+                onClick={handleCloseAddPersonModal}
               >
                 <div className="bg-[#111] border border-surface-border rounded-2xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
                   <h2 className="text-lg font-bold text-white mb-4">Add Person to Watchlist</h2>
@@ -1526,16 +1513,26 @@ export default function App() {
                       )}
                       <input type="file" accept="image/*" className="hidden" onChange={handleAddPersonFileChange} />
                     </label>
+                    {addPersonError && (
+                      <p className="text-red-400 text-xs font-mono text-center">{addPersonError}</p>
+                    )}
                     <div className="flex gap-3">
                       <button
-                        onClick={() => { setShowAddPersonModal(false); setAddPersonName(''); setAddPersonFile(null); setAddPersonPreview(null) }}
+                        onClick={handleCloseAddPersonModal}
                         className="flex-1 py-2.5 border border-surface-border rounded-xl text-sm text-neutral-400 hover:text-white transition-colors"
                       >Cancel</button>
                       <button
                         onClick={handleAddPerson}
                         disabled={!addPersonName.trim() || !addPersonFile || addPersonLoading}
                         className="flex-1 py-2.5 bg-white text-black rounded-xl text-sm font-bold hover:bg-neutral-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                      >{addPersonLoading ? 'Adding...' : 'Add to Watchlist'}</button>
+                      >
+                        {addPersonLoading ? (
+                          <span className="flex items-center justify-center gap-2">
+                            <span className="w-3 h-3 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+                            Adding...
+                          </span>
+                        ) : 'Add to Watchlist'}
+                      </button>
                     </div>
                   </div>
                 </div>

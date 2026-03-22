@@ -858,12 +858,21 @@ async def watchlist_add(name: str = Form(...), photo: UploadFile = File(...)):
     to their entry (multi-photo enrollment) instead of creating a duplicate.
     """
     global _watchlist_cache_ts
+    import asyncio
+
     img_bytes = await photo.read()
     img = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
     if img is None:
         raise HTTPException(status_code=400, detail="Cannot decode uploaded image")
-    embedder = _get_search_embedder()
-    faces = embedder.app.get(img)
+
+    loop = asyncio.get_event_loop()
+
+    # Load embedder + run inference in a thread — both are CPU-bound/blocking
+    def _run_embedder():
+        embedder = _get_search_embedder()   # lazy loads 300MB model on first call
+        return embedder.app.get(img)
+
+    faces = await loop.run_in_executor(None, _run_embedder)
     if not faces:
         raise HTTPException(status_code=400, detail="No face detected in uploaded photo")
     emb = np.array(faces[0].embedding, dtype=np.float32)
