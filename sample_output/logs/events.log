@@ -1,0 +1,297 @@
+2026-03-21 01:17:38,187 | INFO | database | DB_SCHEMA_READY
+2026-03-21 01:17:38,187 | INFO | database | DATABASE_READY path=data\face_tracker.db
+2026-03-21 01:17:38,187 | INFO | image_store | IMAGESTORE_INIT log_dir=logs
+2026-03-21 01:17:38,228 | INFO | face_detector | DETECTOR_INIT model=models\yolov8n.pt
+2026-03-21 01:17:38,228 | INFO | face_detector | DETECTOR_INIT model=yolov8n.pt device=cpu confidence=0.50
+2026-03-21 01:17:38,228 | INFO | face_embedder | EMBEDDER_DOWNLOADING buffalo_l model if not cached (~300MB first run)
+2026-03-21 01:17:40,788 | INFO | face_embedder | EMBEDDER_INIT model=buffalo_l device=cpu clahe=True
+2026-03-21 01:17:40,788 | INFO | face_tracker | TRACKER_INIT type=SimpleIoU max_age=30 iou_thresh=0.3
+2026-03-21 01:17:40,791 | INFO | face_registry | REGISTRY_LOADED count=0
+2026-03-21 01:17:40,791 | INFO | face_registry | REGISTRY_INIT loaded=0 faces threshold=0.6200
+2026-03-21 01:17:40,791 | INFO | event_logger | EVENTLOGGER_INIT line_y=0.50 min_frames=3 max_lost=30
+2026-03-21 01:17:40,791 | INFO | visitor_counter | VISITORCOUNTER_INIT path=data\face_tracker.db
+2026-03-21 01:17:40,791 | INFO | pipeline | PIPELINE_INIT device=cpu skip_frames=3 threshold=0.6200
+2026-03-21 01:17:40,804 | INFO | video_capture | CAPTURE_START source=video path=D:\Software Systems (23-28)\Projects\extras\face-tracker\Video Datasets\record_20250620_183903.mp4 fps=25.0 resolution=2688x1520
+2026-03-21 01:17:40,804 | INFO | pipeline | STREAM_START source=video
+2026-03-21 01:17:41,232 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 01:17:41,733 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 01:17:42,166 | INFO | face_embedder | EMBEDDING_GENERATED shape=512 time_ms=413.7
+2026-03-21 01:17:42,170 | INFO | database | FACE_REGISTERED face_id=eb2a7e8e
+2026-03-21 01:17:42,170 | INFO | face_registry | REGISTERED face_id=eb2a7e8e total=1
+2026-03-21 01:17:42,692 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 01:17:43,041 | INFO | face_embedder | EMBEDDING_GENERATED shape=512 time_ms=342.9
+2026-03-21 01:17:43,041 | INFO | face_registry | REID_DECISION frame=9 best_sim=0.1543 second_sim=0.0000 threshold=0.6200 decision=NEW
+2026-03-21 01:17:43,044 | INFO | database | FACE_REGISTERED face_id=b8b66a15
+2026-03-21 01:17:43,046 | INFO | face_registry | REGISTERED face_id=b8b66a15 total=2
+2026-03-21 01:17:44,220 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 01:17:44,349 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 01:17:44,349 | INFO | pipeline | TRACKS_DEBUG frame=30 detections=1 tracks=1
+2026-03-21 01:17:44,353 | INFO | image_store | IMAGE_SAVED path=logs\entries\2026-03-21\b8b66a15_20260321_011744.jpg size=267x522
+2026-03-21 01:17:44,353 | INFO | event_logger | ENTRY face_id=b8b66a15 frame=30 image=logs\entries\2026-03-21\b8b66a15_20260321_011744.jpg
+2026-03-21 01:17:44,355 | INFO | visitor_counter | UNIQUE_VISITORS total=2 today=0 inside=1 frame=30
+2026-03-21 01:17:44,492 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 01:17:44,619 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 01:17:44,749 | INFO | face_detector | DETECTED count=2 frame_shape=1520x2688
+2026-03-21 01:17:44,961 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 01:17:45,171 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 01:17:45,383 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 01:17:45,610 | INFO | face_detector | DETECTED count=2 frame_shape=1520x2688
+2026-03-21 01:17:45,841 | INFO | face_detector | DETECTED count=2 frame_shape=1520x2688
+2026-03-21 01:17:46,131 | INFO | face_detector | DETECTED count=4 frame_shape=1520x2688
+2026-03-21 01:17:46,500 | INFO | face_detector | DETECTED count=2 frame_shape=1520x2688
+2026-03-21 01:17:46,500 | INFO | pipeline | TRACKS_DEBUG frame=60 detections=2 tracks=2
+2026-03-21 01:17:46,935 | INFO | face_embedder | EMBEDDING_GENERATED shape=512 time_ms=432.1
+2026-03-21 01:17:46,935 | INFO | face_registry | REID_DECISION frame=60 best_sim=0.3273 second_sim=0.2109 threshold=0.6200 decision=NEW
+2026-03-21 01:17:46,937 | INFO | database | FACE_REGISTERED face_id=5eb30d96
+2026-03-21 01:17:46,937 | INFO | face_registry | REGISTERED face_id=5eb30d96 total=3
+2026-03-21 01:17:47,675 | INFO | visitor_counter | UNIQUE_VISITORS total=3 today=1 inside=1 frame=60
+2026-03-21 01:17:47,808 | INFO | face_detector | DETECTED count=4 frame_shape=1520x2688
+2026-03-21 01:17:48,227 | INFO | face_detector | DETECTED count=3 frame_shape=1520x2688
+2026-03-21 01:17:48,575 | INFO | face_embedder | EMBEDDING_GENERATED shape=512 time_ms=342.4
+2026-03-21 01:17:48,575 | INFO | face_registry | REID_DECISION frame=66 best_sim=0.4793 second_sim=0.3604 threshold=0.6200 decision=NEW
+2026-03-21 01:17:48,577 | INFO | database | FACE_REGISTERED face_id=326c8e64
+2026-03-21 01:17:48,577 | INFO | face_registry | REGISTERED face_id=326c8e64 total=4
+2026-03-21 01:17:49,517 | INFO | face_detector | DETECTED count=4 frame_shape=1520x2688
+2026-03-21 01:17:50,004 | INFO | face_embedder | EMBEDDING_GENERATED shape=512 time_ms=390.4
+2026-03-21 01:17:50,004 | INFO | face_registry | REID_DECISION frame=69 best_sim=0.2836 second_sim=0.2007 threshold=0.6200 decision=NEW
+2026-03-21 01:17:50,007 | INFO | database | FACE_REGISTERED face_id=ff031a7a
+2026-03-21 01:17:50,008 | INFO | face_registry | REGISTERED face_id=ff031a7a total=5
+2026-03-21 01:17:50,893 | INFO | face_detector | DETECTED count=2 frame_shape=1520x2688
+2026-03-21 01:17:51,343 | INFO | face_embedder | EMBEDDING_GENERATED shape=512 time_ms=356.2
+2026-03-21 01:17:51,343 | INFO | face_registry | REID_DECISION frame=72 best_sim=0.3268 second_sim=0.2607 threshold=0.6200 decision=NEW
+2026-03-21 01:17:51,347 | INFO | database | FACE_REGISTERED face_id=ac02e2ff
+2026-03-21 01:17:51,347 | INFO | face_registry | REGISTERED face_id=ac02e2ff total=6
+2026-03-21 01:17:51,893 | INFO | face_detector | DETECTED count=5 frame_shape=1520x2688
+2026-03-21 01:17:52,316 | INFO | face_embedder | EMBEDDING_GENERATED shape=512 time_ms=396.9
+2026-03-21 01:17:52,316 | INFO | face_registry | REID_DECISION frame=75 best_sim=0.2740 second_sim=0.2653 threshold=0.6200 decision=NEW
+2026-03-21 01:17:52,318 | INFO | database | FACE_REGISTERED face_id=2ee81d1a
+2026-03-21 01:17:52,318 | INFO | face_registry | REGISTERED face_id=2ee81d1a total=7
+2026-03-21 01:17:53,073 | INFO | face_embedder | EMBEDDING_GENERATED shape=512 time_ms=337.8
+2026-03-21 01:17:53,075 | INFO | face_registry | REID_DECISION frame=75 best_sim=0.2320 second_sim=0.1985 threshold=0.6200 decision=NEW
+2026-03-21 01:17:53,077 | INFO | database | FACE_REGISTERED face_id=85c617a2
+2026-03-21 01:17:53,077 | INFO | face_registry | REGISTERED face_id=85c617a2 total=8
+2026-03-21 01:17:53,697 | INFO | face_detector | DETECTED count=2 frame_shape=1520x2688
+2026-03-21 01:17:54,073 | INFO | face_embedder | EMBEDDING_GENERATED shape=512 time_ms=368.4
+2026-03-21 01:17:54,073 | INFO | face_registry | REID_DECISION frame=78 best_sim=0.4092 second_sim=0.3934 threshold=0.6200 decision=NEW
+2026-03-21 01:17:54,077 | INFO | database | FACE_REGISTERED face_id=70f205fc
+2026-03-21 01:17:54,077 | INFO | face_registry | REGISTERED face_id=70f205fc total=9
+2026-03-21 01:17:54,630 | INFO | face_detector | DETECTED count=3 frame_shape=1520x2688
+2026-03-21 01:17:55,054 | INFO | face_embedder | EMBEDDING_GENERATED shape=512 time_ms=348.8
+2026-03-21 01:17:55,054 | INFO | face_registry | REID_DECISION frame=81 best_sim=0.4946 second_sim=0.3883 threshold=0.6200 decision=NEW
+2026-03-21 01:17:55,056 | INFO | database | FACE_REGISTERED face_id=b5ea0a4b
+2026-03-21 01:17:55,056 | INFO | face_registry | REGISTERED face_id=b5ea0a4b total=10
+2026-03-21 01:17:55,574 | INFO | face_detector | DETECTED count=2 frame_shape=1520x2688
+2026-03-21 01:17:55,930 | INFO | face_embedder | EMBEDDING_GENERATED shape=512 time_ms=339.3
+2026-03-21 01:17:55,930 | INFO | face_registry | REID_DECISION frame=84 best_sim=0.6735 second_sim=0.5370 threshold=0.6200 decision=MATCH
+2026-03-21 01:17:55,930 | INFO | face_registry | REID_MATCH face_id=b5ea0a4b sim=0.6735
+2026-03-21 01:17:56,324 | INFO | face_embedder | EMBEDDING_GENERATED shape=512 time_ms=388.0
+2026-03-21 01:17:56,324 | INFO | face_registry | REID_DECISION frame=84 best_sim=0.2308 second_sim=0.1589 threshold=0.6200 decision=NEW
+2026-03-21 01:17:56,327 | INFO | database | FACE_REGISTERED face_id=0de14d55
+2026-03-21 01:17:56,327 | INFO | face_registry | REGISTERED face_id=0de14d55 total=11
+2026-03-21 01:17:57,033 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 01:17:57,035 | INFO | pipeline | TRACKS_DEBUG frame=90 detections=1 tracks=1
+2026-03-21 01:17:57,035 | INFO | visitor_counter | UNIQUE_VISITORS total=11 today=1 inside=1 frame=90
+2026-03-21 01:17:57,998 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 01:17:58,220 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 01:17:58,450 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 01:17:58,450 | INFO | pipeline | TRACKS_DEBUG frame=120 detections=1 tracks=1
+2026-03-21 01:17:58,531 | INFO | image_store | IMAGE_SAVED path=logs\exits\2026-03-21\b8b66a15_20260321_011758.jpg size=271x507
+2026-03-21 01:17:58,531 | INFO | event_logger | EXIT face_id=b8b66a15 frame=120 trigger=max_lost_frames dwell_secs=14.0
+2026-03-21 01:17:58,534 | INFO | visitor_counter | UNIQUE_VISITORS total=11 today=1 inside=1 frame=120
+2026-03-21 01:17:58,679 | INFO | face_detector | DETECTED count=2 frame_shape=1520x2688
+2026-03-21 01:17:59,019 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 01:17:59,301 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 01:17:59,698 | INFO | face_embedder | EMBEDDING_GENERATED shape=512 time_ms=380.0
+2026-03-21 01:17:59,698 | INFO | face_registry | REID_DECISION frame=129 best_sim=0.2658 second_sim=0.2610 threshold=0.6200 decision=NEW
+2026-03-21 01:17:59,701 | INFO | database | FACE_REGISTERED face_id=7238529c
+2026-03-21 01:17:59,701 | INFO | face_registry | REGISTERED face_id=7238529c total=12
+2026-03-21 01:18:00,240 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 01:18:00,447 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 01:18:00,650 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 01:18:00,851 | INFO | face_detector | DETECTED count=2 frame_shape=1520x2688
+2026-03-21 01:18:01,299 | INFO | face_embedder | EMBEDDING_GENERATED shape=512 time_ms=374.7
+2026-03-21 01:18:01,299 | INFO | face_registry | REID_DECISION frame=141 best_sim=0.5145 second_sim=0.4299 threshold=0.6200 decision=NEW
+2026-03-21 01:18:01,301 | INFO | database | FACE_REGISTERED face_id=ed79b209
+2026-03-21 01:18:01,301 | INFO | face_registry | REGISTERED face_id=ed79b209 total=13
+2026-03-21 01:18:02,123 | INFO | pipeline | TRACKS_DEBUG frame=150 detections=0 tracks=0
+2026-03-21 01:18:02,125 | INFO | visitor_counter | UNIQUE_VISITORS total=13 today=1 inside=0 frame=150
+2026-03-21 01:18:02,394 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 01:18:03,456 | INFO | pipeline | TRACKS_DEBUG frame=180 detections=0 tracks=0
+2026-03-21 01:18:03,456 | INFO | visitor_counter | UNIQUE_VISITORS total=13 today=1 inside=0 frame=180
+2026-03-21 01:18:04,027 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 01:18:04,908 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 01:18:04,909 | INFO | pipeline | TRACKS_DEBUG frame=210 detections=1 tracks=1
+2026-03-21 01:18:04,993 | INFO | visitor_counter | UNIQUE_VISITORS total=13 today=1 inside=0 frame=210
+2026-03-21 01:18:05,142 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 01:18:05,375 | INFO | face_detector | DETECTED count=2 frame_shape=1520x2688
+2026-03-21 01:18:05,743 | INFO | face_detector | DETECTED count=3 frame_shape=1520x2688
+2026-03-21 01:18:06,218 | INFO | face_embedder | EMBEDDING_GENERATED shape=512 time_ms=381.1
+2026-03-21 01:18:06,218 | INFO | face_registry | REID_DECISION frame=219 best_sim=0.4847 second_sim=0.4141 threshold=0.6200 decision=NEW
+2026-03-21 01:18:06,218 | INFO | database | FACE_REGISTERED face_id=49b3b0a0
+2026-03-21 01:18:06,218 | INFO | face_registry | REGISTERED face_id=49b3b0a0 total=14
+2026-03-21 01:18:06,236 | INFO | video_capture | CAPTURE_EOF path=D:\Software Systems (23-28)\Projects\extras\face-tracker\Video Datasets\record_20250620_183903.mp4
+2026-03-21 01:18:06,847 | INFO | pipeline | STREAM_STOP
+2026-03-21 01:18:06,860 | INFO | video_capture | CAPTURE_STOP source=video
+2026-03-21 01:18:06,864 | INFO | face_registry | REGISTRY_SAVED path=data\faiss_index.bin count=14
+2026-03-21 01:18:06,864 | INFO | visitor_counter | VISITORCOUNTER_CLOSED
+2026-03-21 01:18:06,867 | INFO | database | DATABASE_CLOSED path=data\face_tracker.db
+2026-03-21 01:18:06,867 | INFO | pipeline | PIPELINE_SHUTDOWN unique_visitors=14
+2026-03-21 01:18:06,867 | INFO | pipeline | UNIQUE_VISITORS count=14
+2026-03-21 13:57:33,561 | INFO | database | DB_SCHEMA_READY
+2026-03-21 13:57:33,561 | INFO | database | DATABASE_READY url=localhost:5432/facetracker
+2026-03-21 13:57:33,561 | INFO | image_store | IMAGESTORE_INIT log_dir=logs
+2026-03-21 13:57:33,676 | INFO | face_detector | DETECTOR_INIT model=models\yolov8n.pt
+2026-03-21 13:57:33,676 | INFO | face_detector | DETECTOR_INIT model=yolov8n.pt device=cpu confidence=0.50
+2026-03-21 13:57:33,676 | INFO | face_embedder | EMBEDDER_DOWNLOADING buffalo_l model if not cached (~300MB first run)
+2026-03-21 13:57:36,156 | INFO | face_embedder | EMBEDDER_INIT model=buffalo_l device=cpu clahe=True
+2026-03-21 13:57:36,156 | INFO | face_tracker | TRACKER_INIT type=SimpleIoU max_age=30 iou_thresh=0.3
+2026-03-21 13:57:36,212 | INFO | face_registry | REGISTRY_LOADED count=0
+2026-03-21 13:57:36,212 | INFO | face_registry | REGISTRY_INIT loaded=0 faces threshold=0.6200
+2026-03-21 13:57:36,212 | INFO | event_logger | EVENTLOGGER_INIT line_y=0.50 min_frames=3 max_lost=30
+2026-03-21 13:57:36,216 | INFO | visitor_counter | VISITORCOUNTER_INIT
+2026-03-21 13:57:36,216 | INFO | pipeline | PIPELINE_INIT device=cpu skip_frames=3 threshold=0.6200
+2026-03-21 13:57:36,298 | INFO | video_capture | CAPTURE_START source=video path=D:\Software Systems (23-28)\Projects\extras\face-tracker\Video Datasets\record_20250620_183903.mp4 fps=25.0 resolution=2688x1520
+2026-03-21 13:57:36,298 | INFO | pipeline | STREAM_START source=video
+2026-03-21 13:57:36,758 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 13:57:37,138 | INFO | face_detector | DETECTED count=2 frame_shape=1520x2688
+2026-03-21 13:57:38,059 | INFO | face_embedder | EMBEDDING_GENERATED shape=512 time_ms=846.2
+2026-03-21 13:57:38,064 | INFO | database | FACE_REGISTERED face_id=f0598069
+2026-03-21 13:57:38,064 | INFO | face_registry | REGISTERED face_id=f0598069 total=1
+2026-03-21 13:57:39,064 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 13:57:39,179 | INFO | face_detector | DETECTED count=2 frame_shape=1520x2688
+2026-03-21 13:57:39,188 | INFO | image_store | IMAGE_SAVED path=logs\entries\2026-03-21\f0598069_20260321_135739.jpg size=268x525
+2026-03-21 13:57:39,190 | INFO | event_logger | ENTRY face_id=f0598069 frame=21 image=logs\entries\2026-03-21\f0598069_20260321_135739.jpg
+2026-03-21 13:57:39,373 | INFO | face_detector | DETECTED count=2 frame_shape=1520x2688
+2026-03-21 13:57:39,556 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 13:57:39,672 | INFO | face_detector | DETECTED count=2 frame_shape=1520x2688
+2026-03-21 13:57:39,672 | INFO | pipeline | TRACKS_DEBUG frame=30 detections=2 tracks=2
+2026-03-21 13:57:39,738 | INFO | visitor_counter | UNIQUE_VISITORS total=1 today=1 inside=1 frame=30
+2026-03-21 13:57:39,979 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 13:57:40,265 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 13:57:40,389 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 13:57:40,596 | INFO | face_detector | DETECTED count=2 frame_shape=1520x2688
+2026-03-21 13:57:41,286 | INFO | face_embedder | EMBEDDING_GENERATED shape=512 time_ms=601.7
+2026-03-21 13:57:41,288 | INFO | face_registry | REID_DECISION frame=48 best_sim=0.0652 second_sim=0.0000 threshold=0.6200 decision=NEW
+2026-03-21 13:57:41,290 | INFO | database | FACE_REGISTERED face_id=fe0c0403
+2026-03-21 13:57:41,290 | INFO | face_registry | REGISTERED face_id=fe0c0403 total=2
+2026-03-21 13:57:42,032 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 13:57:42,226 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 13:57:42,459 | INFO | face_detector | DETECTED count=2 frame_shape=1520x2688
+2026-03-21 13:57:42,711 | INFO | face_detector | DETECTED count=3 frame_shape=1520x2688
+2026-03-21 13:57:42,713 | INFO | pipeline | TRACKS_DEBUG frame=60 detections=3 tracks=3
+2026-03-21 13:57:43,097 | INFO | face_embedder | EMBEDDING_GENERATED shape=512 time_ms=310.0
+2026-03-21 13:57:43,097 | INFO | face_registry | REID_DECISION frame=60 best_sim=0.2620 second_sim=0.0602 threshold=0.6200 decision=NEW
+2026-03-21 13:57:43,098 | INFO | database | FACE_REGISTERED face_id=22a4018e
+2026-03-21 13:57:43,098 | INFO | face_registry | REGISTERED face_id=22a4018e total=3
+2026-03-21 13:57:43,496 | INFO | visitor_counter | UNIQUE_VISITORS total=3 today=1 inside=1 frame=60
+2026-03-21 13:57:43,623 | INFO | face_detector | DETECTED count=5 frame_shape=1520x2688
+2026-03-21 13:57:43,940 | INFO | face_embedder | EMBEDDING_GENERATED shape=512 time_ms=311.2
+2026-03-21 13:57:43,941 | INFO | face_registry | REID_DECISION frame=63 best_sim=0.2701 second_sim=0.1170 threshold=0.6200 decision=NEW
+2026-03-21 13:57:43,944 | INFO | database | FACE_REGISTERED face_id=741c10dd
+2026-03-21 13:57:43,944 | INFO | face_registry | REGISTERED face_id=741c10dd total=4
+2026-03-21 13:57:44,561 | INFO | face_detector | DETECTED count=3 frame_shape=1520x2688
+2026-03-21 13:57:44,940 | INFO | face_embedder | EMBEDDING_GENERATED shape=512 time_ms=293.2
+2026-03-21 13:57:44,940 | INFO | face_registry | REID_DECISION frame=66 best_sim=0.3196 second_sim=0.2723 threshold=0.6200 decision=NEW
+2026-03-21 13:57:44,941 | INFO | database | FACE_REGISTERED face_id=92d413c1
+2026-03-21 13:57:44,943 | INFO | face_registry | REGISTERED face_id=92d413c1 total=5
+2026-03-21 13:57:45,713 | INFO | face_detector | DETECTED count=3 frame_shape=1520x2688
+2026-03-21 13:57:46,013 | INFO | face_embedder | EMBEDDING_GENERATED shape=512 time_ms=282.8
+2026-03-21 13:57:46,013 | INFO | face_registry | REID_DECISION frame=69 best_sim=0.3966 second_sim=0.3249 threshold=0.6200 decision=NEW
+2026-03-21 13:57:46,015 | INFO | database | FACE_REGISTERED face_id=f31e36c8
+2026-03-21 13:57:46,015 | INFO | face_registry | REGISTERED face_id=f31e36c8 total=6
+2026-03-21 13:57:46,543 | INFO | face_detector | DETECTED count=3 frame_shape=1520x2688
+2026-03-21 13:57:46,546 | INFO | event_logger | LINE_CROSS face_id=f31e36c8 direction=ENTRY_CROSS frame=72
+2026-03-21 13:57:46,748 | INFO | face_detector | DETECTED count=3 frame_shape=1520x2688
+2026-03-21 13:57:46,836 | INFO | image_store | IMAGE_SAVED path=logs\entries\2026-03-21\f31e36c8_20260321_135746.jpg size=561x1304
+2026-03-21 13:57:46,836 | INFO | event_logger | ENTRY face_id=f31e36c8 frame=75 image=logs\entries\2026-03-21\f31e36c8_20260321_135746.jpg
+2026-03-21 13:57:47,038 | INFO | face_detector | DETECTED count=3 frame_shape=1520x2688
+2026-03-21 13:57:47,384 | INFO | face_embedder | EMBEDDING_GENERATED shape=512 time_ms=316.0
+2026-03-21 13:57:47,384 | INFO | face_registry | REID_DECISION frame=78 best_sim=0.3526 second_sim=0.2080 threshold=0.6200 decision=NEW
+2026-03-21 13:57:47,386 | INFO | database | FACE_REGISTERED face_id=cdefa409
+2026-03-21 13:57:47,388 | INFO | face_registry | REGISTERED face_id=cdefa409 total=7
+2026-03-21 13:57:47,934 | INFO | face_detector | DETECTED count=5 frame_shape=1520x2688
+2026-03-21 13:57:48,311 | INFO | face_embedder | EMBEDDING_GENERATED shape=512 time_ms=304.9
+2026-03-21 13:57:48,311 | INFO | face_registry | REID_DECISION frame=81 best_sim=0.1057 second_sim=0.0724 threshold=0.6200 decision=NEW
+2026-03-21 13:57:48,313 | INFO | database | FACE_REGISTERED face_id=ab61e292
+2026-03-21 13:57:48,315 | INFO | face_registry | REGISTERED face_id=ab61e292 total=8
+2026-03-21 13:57:48,766 | INFO | face_detector | DETECTED count=2 frame_shape=1520x2688
+2026-03-21 13:57:48,770 | INFO | image_store | IMAGE_SAVED path=logs\entries\2026-03-21\741c10dd_20260321_135748.jpg size=303x559
+2026-03-21 13:57:48,772 | INFO | event_logger | ENTRY face_id=741c10dd frame=84 image=logs\entries\2026-03-21\741c10dd_20260321_135748.jpg
+2026-03-21 13:57:48,967 | INFO | face_detector | DETECTED count=2 frame_shape=1520x2688
+2026-03-21 13:57:49,146 | INFO | face_detector | DETECTED count=2 frame_shape=1520x2688
+2026-03-21 13:57:49,146 | INFO | pipeline | TRACKS_DEBUG frame=90 detections=2 tracks=2
+2026-03-21 13:57:49,471 | INFO | face_embedder | EMBEDDING_GENERATED shape=512 time_ms=319.5
+2026-03-21 13:57:49,471 | INFO | face_registry | REID_DECISION frame=90 best_sim=0.4748 second_sim=0.3132 threshold=0.6200 decision=NEW
+2026-03-21 13:57:49,474 | INFO | database | FACE_REGISTERED face_id=00bcd460
+2026-03-21 13:57:49,475 | INFO | face_registry | REGISTERED face_id=00bcd460 total=9
+2026-03-21 13:57:49,790 | INFO | visitor_counter | UNIQUE_VISITORS total=9 today=3 inside=3 frame=90
+2026-03-21 13:57:49,913 | INFO | face_detector | DETECTED count=3 frame_shape=1520x2688
+2026-03-21 13:57:50,184 | INFO | face_detector | DETECTED count=3 frame_shape=1520x2688
+2026-03-21 13:57:50,491 | INFO | face_embedder | EMBEDDING_GENERATED shape=512 time_ms=296.3
+2026-03-21 13:57:50,494 | INFO | face_registry | REID_DECISION frame=96 best_sim=0.3884 second_sim=0.3546 threshold=0.6200 decision=NEW
+2026-03-21 13:57:50,496 | INFO | database | FACE_REGISTERED face_id=49c035ed
+2026-03-21 13:57:50,496 | INFO | face_registry | REGISTERED face_id=49c035ed total=10
+2026-03-21 13:57:51,235 | INFO | face_embedder | EMBEDDING_GENERATED shape=512 time_ms=381.5
+2026-03-21 13:57:51,235 | INFO | face_registry | REID_DECISION frame=96 best_sim=0.6364 second_sim=0.3986 threshold=0.6200 decision=MATCH
+2026-03-21 13:57:51,235 | INFO | face_registry | REID_MATCH face_id=00bcd460 sim=0.6364
+2026-03-21 13:57:51,361 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 13:57:51,556 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 13:57:51,765 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 13:57:51,834 | INFO | image_store | IMAGE_SAVED path=logs\exits\2026-03-21\f31e36c8_20260321_135751.jpg size=655x1173
+2026-03-21 13:57:51,836 | INFO | event_logger | EXIT face_id=f31e36c8 frame=108 trigger=max_lost_frames dwell_secs=5.0
+2026-03-21 13:57:52,058 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 13:57:52,258 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 13:57:52,259 | INFO | pipeline | TRACKS_DEBUG frame=120 detections=1 tracks=1
+2026-03-21 13:57:52,263 | INFO | image_store | IMAGE_SAVED path=logs\exits\2026-03-21\741c10dd_20260321_135752.jpg size=252x640
+2026-03-21 13:57:52,263 | INFO | event_logger | EXIT face_id=741c10dd frame=120 trigger=max_lost_frames dwell_secs=4.0
+2026-03-21 13:57:52,266 | INFO | visitor_counter | UNIQUE_VISITORS total=10 today=3 inside=1 frame=120
+2026-03-21 13:57:52,474 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 13:57:53,021 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 13:57:53,258 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 13:57:53,616 | INFO | face_embedder | EMBEDDING_GENERATED shape=512 time_ms=339.6
+2026-03-21 13:57:53,616 | INFO | face_registry | REID_DECISION frame=138 best_sim=0.4220 second_sim=0.4199 threshold=0.6200 decision=NEW
+2026-03-21 13:57:53,619 | INFO | database | FACE_REGISTERED face_id=84a59d37
+2026-03-21 13:57:53,619 | INFO | face_registry | REGISTERED face_id=84a59d37 total=11
+2026-03-21 13:57:53,829 | INFO | face_detector | DETECTED count=2 frame_shape=1520x2688
+2026-03-21 13:57:54,108 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 13:57:54,328 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 13:57:54,585 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 13:57:54,585 | INFO | pipeline | TRACKS_DEBUG frame=150 detections=1 tracks=1
+2026-03-21 13:57:54,744 | INFO | image_store | IMAGE_SAVED path=logs\exits\2026-03-21\f0598069_20260321_135754.jpg size=272x512
+2026-03-21 13:57:54,745 | INFO | event_logger | EXIT face_id=f0598069 frame=150 trigger=max_lost_frames dwell_secs=15.0
+2026-03-21 13:57:54,748 | INFO | visitor_counter | UNIQUE_VISITORS total=11 today=3 inside=0 frame=150
+2026-03-21 13:57:54,885 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 13:57:55,088 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 13:57:55,327 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 13:57:55,514 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 13:57:55,719 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 13:57:56,260 | INFO | face_detector | DETECTED count=2 frame_shape=1520x2688
+2026-03-21 13:57:56,570 | INFO | face_embedder | EMBEDDING_GENERATED shape=512 time_ms=305.0
+2026-03-21 13:57:56,573 | INFO | face_registry | REID_DECISION frame=177 best_sim=0.4025 second_sim=0.3072 threshold=0.6200 decision=NEW
+2026-03-21 13:57:56,575 | INFO | database | FACE_REGISTERED face_id=eded768e
+2026-03-21 13:57:56,577 | INFO | face_registry | REGISTERED face_id=eded768e total=12
+2026-03-21 13:57:57,409 | INFO | pipeline | TRACKS_DEBUG frame=180 detections=0 tracks=0
+2026-03-21 13:57:57,414 | INFO | visitor_counter | UNIQUE_VISITORS total=12 today=3 inside=0 frame=180
+2026-03-21 13:57:58,289 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 13:57:58,588 | INFO | face_embedder | EMBEDDING_GENERATED shape=512 time_ms=297.2
+2026-03-21 13:57:58,588 | INFO | face_registry | REID_DECISION frame=201 best_sim=0.4847 second_sim=0.3982 threshold=0.6200 decision=NEW
+2026-03-21 13:57:58,593 | INFO | database | FACE_REGISTERED face_id=2e8b66f5
+2026-03-21 13:57:58,593 | INFO | face_registry | REGISTERED face_id=2e8b66f5 total=13
+2026-03-21 13:57:59,474 | INFO | face_detector | DETECTED count=1 frame_shape=1520x2688
+2026-03-21 13:57:59,474 | INFO | pipeline | TRACKS_DEBUG frame=210 detections=1 tracks=1
+2026-03-21 13:57:59,548 | INFO | visitor_counter | UNIQUE_VISITORS total=13 today=3 inside=0 frame=210
+2026-03-21 13:57:59,712 | INFO | face_detector | DETECTED count=2 frame_shape=1520x2688
+2026-03-21 13:57:59,913 | INFO | face_detector | DETECTED count=2 frame_shape=1520x2688
+2026-03-21 13:58:00,217 | INFO | face_detector | DETECTED count=3 frame_shape=1520x2688
+2026-03-21 13:58:00,681 | INFO | face_embedder | EMBEDDING_GENERATED shape=512 time_ms=314.5
+2026-03-21 13:58:00,681 | INFO | face_registry | REID_DECISION frame=219 best_sim=0.4552 second_sim=0.3501 threshold=0.6200 decision=NEW
+2026-03-21 13:58:00,681 | INFO | database | FACE_REGISTERED face_id=f72ab77b
+2026-03-21 13:58:00,681 | INFO | face_registry | REGISTERED face_id=f72ab77b total=14
+2026-03-21 13:58:00,688 | INFO | video_capture | CAPTURE_EOF path=D:\Software Systems (23-28)\Projects\extras\face-tracker\Video Datasets\record_20250620_183903.mp4
+2026-03-21 13:58:01,195 | INFO | pipeline | STREAM_STOP
+2026-03-21 13:58:01,209 | INFO | video_capture | CAPTURE_STOP source=video
+2026-03-21 13:58:01,213 | INFO | face_registry | REGISTRY_SAVED path=data\faiss_index.bin count=14
+2026-03-21 13:58:01,214 | INFO | visitor_counter | VISITORCOUNTER_CLOSED
+2026-03-21 13:58:01,216 | INFO | database | DATABASE_CLOSED url=localhost:5432/facetracker
+2026-03-21 13:58:01,216 | INFO | pipeline | PIPELINE_SHUTDOWN unique_visitors=14
+2026-03-21 13:58:01,216 | INFO | pipeline | UNIQUE_VISITORS count=14
