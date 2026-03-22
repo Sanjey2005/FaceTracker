@@ -1,6 +1,6 @@
 # Project Progress
 
-_Last updated: 22 March 2026, 9:05 PM IST_
+_Last updated: 23 March 2026, hackathon day_
 
 ## Requirement vs Implementation
 
@@ -95,6 +95,17 @@ _Last updated: 22 March 2026, 9:05 PM IST_
 | WebSocket live push (no polling)             | Not mentioned                                  |
 | MJPEG live video feed                        | Not mentioned                                  |
 | CSV analytics export                         | Not mentioned                                  |
+
+---
+
+## Bug Fixes Applied (23 Mar)
+
+| Fix | File | Change |
+|-----|------|--------|
+| P0: Search blocking event loop | `api/main.py:836,865` | `_search_db_for_target()` offloaded via `asyncio.to_thread` |
+| P1: 200ms stream key delay | `dashboard/src/App.jsx:234` | `setStreamKey` now fires synchronously on camera change |
+| P2: Auto-follow double-switch | `dashboard/src/App.jsx:217` | OR condition replaced with single `featuredCamera` check |
+| P3: Auto-follow to crashed cam | `api/main.py:902` | `thread.is_alive()` guard added before returning active camera |
 
 ---
 
