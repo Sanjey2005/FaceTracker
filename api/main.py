@@ -18,10 +18,13 @@ Run with:
   uvicorn api.main:app --reload --port 8000
 """
 
+import base64
 import logging
 import queue
 import threading
+import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -30,7 +33,7 @@ import numpy as np
 import psycopg2
 import psycopg2.extras
 import psycopg2.pool
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -60,6 +63,7 @@ async def lifespan(app: FastAPI):
     global _pool
     _pool = psycopg2.pool.ThreadedConnectionPool(1, 10, dsn=DATABASE_URL)
     logger.info("API_DB_POOL_READY")
+    _ensure_watchlist_schema()
     yield
     if _pool:
         _pool.closeall()
@@ -91,6 +95,19 @@ _target_embeddings: list = []  # list of L2-normalised numpy arrays, one per enr
 _target_face_id: Optional[str] = None
 _search_embedder = None  # lazy-loaded FaceEmbedder
 
+# ---------------------------------------------------------------------------
+# Watchlist state
+# ---------------------------------------------------------------------------
+
+# In-memory cache: [{id, name, embedding_norm}] — refreshed every 30s by pipeline
+_watchlist_cache: list = []
+_watchlist_cache_ts: float = 0.0
+_WATCHLIST_REFRESH_SECS = 30
+
+# Duplicate alert suppression: {(camera_id, watchlist_id): monotonic_time}
+_recent_alert_ts: dict = {}
+_ALERT_COOLDOWN_SECS = 60
+
 
 def _get_search_embedder():
     """Lazy-load FaceEmbedder once; avoids reloading 300MB buffalo_l model per request."""
@@ -100,6 +117,158 @@ def _get_search_embedder():
         from modules.face_embedder import FaceEmbedder
         _search_embedder = FaceEmbedder(load_config(str(_CONFIG_PATH)))
     return _search_embedder
+
+
+# ---------------------------------------------------------------------------
+# Watchlist helpers
+# ---------------------------------------------------------------------------
+
+
+def _ensure_watchlist_schema() -> None:
+    """Create watchlist + alerts tables if they don't exist. Called from lifespan."""
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS watchlist (
+                    id        SERIAL PRIMARY KEY,
+                    name      TEXT NOT NULL,
+                    embedding BYTEA NOT NULL,
+                    photo_b64 TEXT,
+                    added_at  TIMESTAMP DEFAULT NOW()
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS alerts (
+                    id             SERIAL PRIMARY KEY,
+                    watchlist_id   INTEGER REFERENCES watchlist(id) ON DELETE CASCADE,
+                    watchlist_name TEXT,
+                    face_id        TEXT,
+                    camera_id      TEXT,
+                    snapshot_b64   TEXT,
+                    matched_at     TIMESTAMP DEFAULT NOW(),
+                    similarity     FLOAT,
+                    acknowledged   BOOLEAN DEFAULT FALSE
+                )
+            """)
+        conn.commit()
+        logger.info("WATCHLIST_SCHEMA_READY")
+    finally:
+        _pool.putconn(conn)
+
+
+def _refresh_watchlist_cache() -> None:
+    """Load all watchlist embeddings (L2-normalised) into _watchlist_cache.
+
+    Groups multiple embeddings per watchlist person so _check_watchlist can
+    compare against all enrolled photos.
+    """
+    global _watchlist_cache, _watchlist_cache_ts
+    if not _pool:
+        return
+    conn = _pool.getconn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT w.id, w.name, we.embedding
+                FROM watchlist w
+                JOIN watchlist_embeddings we ON we.watchlist_id = w.id
+                ORDER BY w.id
+            """)
+            rows = cur.fetchall()
+    finally:
+        _pool.putconn(conn)
+
+    # Group embeddings by watchlist person id
+    grouped: dict = {}
+    for row in rows:
+        wl_id = row["id"]
+        if wl_id not in grouped:
+            grouped[wl_id] = {"id": wl_id, "name": row["name"], "embeddings_norm": []}
+        emb = np.frombuffer(bytes(row["embedding"]), dtype=np.float32)
+        norm = emb / (np.linalg.norm(emb) + 1e-8)
+        grouped[wl_id]["embeddings_norm"].append(norm)
+
+    _watchlist_cache = list(grouped.values())
+    _watchlist_cache_ts = time.monotonic()
+    logger.info("WATCHLIST_CACHE_REFRESHED entries=%d", len(_watchlist_cache))
+
+
+def _check_watchlist(
+    camera_id: str,
+    face_id: str,
+    raw_embedding: np.ndarray,
+    frame: np.ndarray,
+    bbox: tuple,
+) -> None:
+    """Check a resolved face embedding against the watchlist. Insert alert if matched.
+
+    Called from _run_pipeline() after every re-ID resolution.
+    Uses _recent_alert_ts to suppress duplicate alerts within 60 seconds.
+    """
+    global _watchlist_cache_ts, _recent_alert_ts
+
+    # Refresh stale cache
+    if time.monotonic() - _watchlist_cache_ts > _WATCHLIST_REFRESH_SECS:
+        _refresh_watchlist_cache()
+
+    if not _watchlist_cache:
+        return
+
+    emb_norm = raw_embedding / (np.linalg.norm(raw_embedding) + 1e-8)
+    now = time.monotonic()
+
+    for entry in _watchlist_cache:
+        # Compare against all enrolled embeddings; take best match
+        best_sim = max(
+            float(np.dot(emb_norm, ref)) for ref in entry["embeddings_norm"]
+        )
+        if best_sim < 0.55:
+            continue
+
+        wl_id = entry["id"]
+        key = (camera_id, wl_id)
+
+        # Suppress duplicate alerts within cooldown window
+        if now - _recent_alert_ts.get(key, 0.0) < _ALERT_COOLDOWN_SECS:
+            continue
+
+        _recent_alert_ts[key] = now
+
+        # Capture 200×200 snapshot as base64 JPEG
+        x1, y1, x2, y2 = map(int, bbox)
+        crop = frame[max(y1, 0):max(y2, 0), max(x1, 0):max(x2, 0)]
+        snapshot_b64 = None
+        if crop.size > 0:
+            crop_resized = cv2.resize(crop, (200, 200))
+            _, buf = cv2.imencode(".jpg", crop_resized, [cv2.IMWRITE_JPEG_QUALITY, 75])
+            snapshot_b64 = base64.b64encode(buf.tobytes()).decode()
+
+        # Insert alert row
+        if _pool:
+            conn = _pool.getconn()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO alerts
+                            (watchlist_id, watchlist_name, face_id, camera_id,
+                             snapshot_b64, similarity)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        """,
+                        (wl_id, entry["name"], face_id, camera_id, snapshot_b64, best_sim),
+                    )
+                conn.commit()
+            except Exception as exc:
+                logger.error("WATCHLIST_ALERT_INSERT_ERROR %s", exc)
+                conn.rollback()
+            finally:
+                _pool.putconn(conn)
+
+        logger.info(
+            "WATCHLIST_MATCH watchlist_id=%d name=%s face_id=%s camera=%s sim=%.4f",
+            wl_id, entry["name"], face_id, camera_id, best_sim,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -264,7 +433,7 @@ def get_demographics():
             rows = cur.fetchall()
 
         if not rows:
-            return {"Male": 62, "Female": 38}
+            return {"Male": 0, "Female": 0}
 
         return {row["estimated_gender"]: row["cnt"] for row in rows}
     except psycopg2.Error as exc:
@@ -305,6 +474,7 @@ def _run_pipeline(
     from modules.database import Database
     from modules.face_detector import FaceDetector
     from modules.face_embedder import FaceEmbedder
+    from modules.rtsp_stream import RTSPStream
     from modules.face_registry import FaceRegistry
     from modules.face_tracker import FaceTracker
 
@@ -321,10 +491,18 @@ def _run_pipeline(
         logger.error("PIPELINE_NO_SOURCE source=%s config=%s", source, source_config)
         return
 
-    cap = cv2.VideoCapture(capture_target)
-    if not cap.isOpened():
-        logger.error("PIPELINE_CAPTURE_FAILED target=%s", capture_target)
-        return
+    is_rtsp = isinstance(capture_target, str) and capture_target.lower().startswith('rtsp')
+    if is_rtsp:
+        cap = RTSPStream(capture_target).start()
+        if not cap.is_connected:
+            logger.error("PIPELINE_CAPTURE_FAILED target=%s", capture_target)
+            return
+    else:
+        cap = cv2.VideoCapture(capture_target)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        if not cap.isOpened():
+            logger.error("PIPELINE_CAPTURE_FAILED target=%s", capture_target)
+            return
 
     logger.info("PIPELINE_START camera_id=%s source=%s target=%s", camera_id, source, capture_target)
 
@@ -345,8 +523,13 @@ def _run_pipeline(
 
     try:
         while not stop_event.is_set():
-            ret, frame = cap.read()
+            if is_rtsp:
+                ret, frame = cap.read()
+            else:
+                ret, frame = cap.read()
             if not ret:
+                if is_rtsp:
+                    continue  # RTSPStream may return False briefly during reconnect
                 break
 
             frame_id += 1
@@ -361,10 +544,11 @@ def _run_pipeline(
                     if tid not in last_resolved:
                         crop = embedder.crop_face(frame, track["bbox"])
                         if crop is not None:
-                            embedding = embedder.get_embedding(crop)
+                            embedding, det_score = embedder.get_embedding(crop)
                             if embedding is not None:
                                 face_id, _ = registry.lookup_or_register(embedding, frame_id)
                                 last_resolved[tid] = face_id
+                                _check_watchlist(camera_id, face_id, embedding, frame, track["bbox"])
 
                 active_ids = {t["tracker_id"] for t in last_tracks}
                 last_resolved = {k: v for k, v in last_resolved.items() if k in active_ids}
@@ -428,9 +612,12 @@ def _run_pipeline(
                     pass
 
     finally:
-        cap.release()
+        if is_rtsp:
+            cap.stop()
+        else:
+            cap.release()
         try:
-            db.stop()
+            db.close()
         except Exception:
             pass
         logger.info("PIPELINE_STOP camera_id=%s frame_id=%d", camera_id, frame_id)
@@ -655,3 +842,187 @@ def search_active_camera():
         if cam["thread"].is_alive():
             return {"active_camera": cam_id}
     return {"active_camera": None}
+
+
+# ---------------------------------------------------------------------------
+# Endpoints — Watchlist
+# ---------------------------------------------------------------------------
+
+
+@app.post("/watchlist/add")
+async def watchlist_add(name: str = Form(...), photo: UploadFile = File(...)):
+    """
+    Upload a photo of a person to add to the watchlist.
+    Extracts a 512-dim InsightFace embedding and stores it.
+    If a person with the same name already exists, appends the new embedding
+    to their entry (multi-photo enrollment) instead of creating a duplicate.
+    """
+    global _watchlist_cache_ts
+    img_bytes = await photo.read()
+    img = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
+    if img is None:
+        raise HTTPException(status_code=400, detail="Cannot decode uploaded image")
+    embedder = _get_search_embedder()
+    faces = embedder.app.get(img)
+    if not faces:
+        raise HTTPException(status_code=400, detail="No face detected in uploaded photo")
+    emb = np.array(faces[0].embedding, dtype=np.float32)
+    blob = psycopg2.Binary(emb.tobytes())
+
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            # Check if this name already has a watchlist entry
+            cur.execute("SELECT id FROM watchlist WHERE name=%s LIMIT 1", (name,))
+            existing = cur.fetchone()
+
+            if existing:
+                # Append new embedding to existing person
+                wl_id = existing[0]
+                cur.execute(
+                    "INSERT INTO watchlist_embeddings (watchlist_id, embedding) VALUES (%s, %s)",
+                    (wl_id, blob),
+                )
+                cur.execute(
+                    "SELECT COUNT(*) FROM watchlist_embeddings WHERE watchlist_id=%s",
+                    (wl_id,),
+                )
+                total = cur.fetchone()[0]
+                conn.commit()
+                _watchlist_cache_ts = 0.0
+                logger.info("WATCHLIST_EMBEDDING_ADDED id=%d name=%s total=%d", wl_id, name, total)
+                return {
+                    "id": wl_id,
+                    "name": name,
+                    "message": f"Added new embedding for {name} (total: {total} embeddings)",
+                }
+            else:
+                # New person: create watchlist row + first embedding row
+                photo_b64 = base64.b64encode(img_bytes).decode()
+                cur.execute(
+                    "INSERT INTO watchlist (name, embedding, photo_b64) VALUES (%s, %s, %s) RETURNING id",
+                    (name, blob, photo_b64),
+                )
+                new_id = cur.fetchone()[0]
+                cur.execute(
+                    "INSERT INTO watchlist_embeddings (watchlist_id, embedding) VALUES (%s, %s)",
+                    (new_id, blob),
+                )
+                conn.commit()
+                _watchlist_cache_ts = 0.0
+                logger.info("WATCHLIST_ADDED id=%d name=%s", new_id, name)
+                return {"id": new_id, "name": name, "message": "Added to watchlist"}
+
+    except psycopg2.Error as exc:
+        logger.error("WATCHLIST_ADD_ERROR %s", exc)
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        _pool.putconn(conn)
+
+
+@app.get("/watchlist")
+def watchlist_list():
+    """Return all watchlist entries (id, name, photo_b64, added_at)."""
+    conn = get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT id, name, photo_b64, added_at FROM watchlist ORDER BY added_at DESC"
+            )
+            rows = cur.fetchall()
+    except psycopg2.Error as exc:
+        logger.error("WATCHLIST_LIST_ERROR %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        _pool.putconn(conn)
+    return [
+        {
+            "id": row["id"],
+            "name": row["name"],
+            "photo_b64": row["photo_b64"],
+            "added_at": row["added_at"].isoformat() if row["added_at"] else None,
+        }
+        for row in rows
+    ]
+
+
+@app.delete("/watchlist/{wl_id}")
+def watchlist_delete(wl_id: int):
+    """Remove a watchlist entry (cascades to its alerts)."""
+    global _watchlist_cache_ts
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM watchlist WHERE id=%s", (wl_id,))
+        conn.commit()
+    except psycopg2.Error as exc:
+        logger.error("WATCHLIST_DELETE_ERROR %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        _pool.putconn(conn)
+    _watchlist_cache_ts = 0.0  # Invalidate cache
+    logger.info("WATCHLIST_DELETED id=%d", wl_id)
+    return {"status": "deleted", "id": wl_id}
+
+
+# ---------------------------------------------------------------------------
+# Endpoints — Alerts
+# ---------------------------------------------------------------------------
+
+
+@app.get("/alerts")
+def get_alerts_endpoint(since: Optional[str] = None, unacknowledged_only: bool = False):
+    """
+    Return alerts newer than `since` (ISO timestamp).
+    Defaults to alerts from the last 60 seconds if `since` is omitted.
+    """
+    if since:
+        since_ts = since
+    else:
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=60)
+        since_ts = cutoff.isoformat()
+
+    conn = get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            query = """
+                SELECT id, watchlist_id, watchlist_name, face_id, camera_id,
+                       snapshot_b64, matched_at, similarity, acknowledged
+                FROM   alerts
+                WHERE  matched_at > %s::timestamp
+            """
+            params: list = [since_ts]
+            if unacknowledged_only:
+                query += " AND acknowledged = FALSE"
+            query += " ORDER BY matched_at DESC LIMIT 50"
+            cur.execute(query, params)
+            rows = cur.fetchall()
+    except psycopg2.Error as exc:
+        logger.error("ALERTS_LIST_ERROR %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        _pool.putconn(conn)
+    return [
+        {
+            **dict(row),
+            "matched_at": row["matched_at"].isoformat() if row["matched_at"] else None,
+        }
+        for row in rows
+    ]
+
+
+@app.post("/alerts/{alert_id}/acknowledge")
+def acknowledge_alert(alert_id: int):
+    """Mark a single alert as acknowledged."""
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE alerts SET acknowledged=TRUE WHERE id=%s", (alert_id,))
+        conn.commit()
+    except psycopg2.Error as exc:
+        logger.error("ALERT_ACK_ERROR %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        _pool.putconn(conn)
+    return {"status": "acknowledged", "id": alert_id}

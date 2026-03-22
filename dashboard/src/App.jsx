@@ -46,6 +46,8 @@ export default function App() {
   const [numCameras, setNumCameras] = useState(null)
   const [activeCam, setActiveCam] = useState(null)
   const [autoFollow, setAutoFollow] = useState(false)
+  const [featuredCamera, setFeaturedCamera] = useState(null)
+  const [feedFlashing, setFeedFlashing] = useState(false)
 
   // Person search state
   const [targetStatus, setTargetStatus] = useState(null)  // null | 'found' | 'searching'
@@ -57,7 +59,7 @@ export default function App() {
     JSON.parse(localStorage.getItem('ft_saved_cameras') || '[]')
   )
 
-  // Notifications
+  // Notifications (tracking events — used for internal badge only)
   const [alerts, setAlerts] = useState([])
   const [showAlerts, setShowAlerts] = useState(false)
   const lastEventTimestampRef = useRef(null)
@@ -66,6 +68,17 @@ export default function App() {
   const [eventsPage, setEventsPage] = useState(0)
   // Settings page re-render trigger
   const [settingsTick, setSettingsTick] = useState(0)
+
+  // Watchlist page state
+  const [watchlistEntries, setWatchlistEntries] = useState([])
+  const [showAddPersonModal, setShowAddPersonModal] = useState(false)
+  const [addPersonName, setAddPersonName] = useState('')
+  const [addPersonFile, setAddPersonFile] = useState(null)
+  const [addPersonPreview, setAddPersonPreview] = useState(null)
+  const [addPersonLoading, setAddPersonLoading] = useState(false)
+
+  // Watchlist alerts — polled from /alerts?unacknowledged_only=true every 5s
+  const [watchlistAlerts, setWatchlistAlerts] = useState([])
 
   const fetchAll = async () => {
     try {
@@ -121,10 +134,27 @@ export default function App() {
     if (liveFeedRef.current) liveFeedRef.current.scrollTop = 0
   }, [events])
 
+  // Poll watchlist alerts every 5s
+  useEffect(() => {
+    const fetchWatchlistAlerts = async () => {
+      try {
+        const res = await fetch(`${API}/alerts?unacknowledged_only=true`)
+        if (res.ok) setWatchlistAlerts(await res.json())
+      } catch (err) { console.error('Watchlist alerts poll failed', err) }
+    }
+    fetchWatchlistAlerts()
+    const id = setInterval(fetchWatchlistAlerts, 5000)
+    return () => clearInterval(id)
+  }, [])
+
   // Re-sync dashboard camera tiles from localStorage when returning to dashboard
+  // Also fetch watchlist entries when navigating to watchlist page
   useEffect(() => {
     if (activePage === 'dashboard') {
       setDashboardSavedCameras(JSON.parse(localStorage.getItem('ft_saved_cameras') || '[]'))
+    }
+    if (activePage === 'watchlist') {
+      fetch(`${API}/watchlist`).then(r => r.json()).then(setWatchlistEntries).catch(console.error)
     }
   }, [activePage])
 
@@ -138,12 +168,17 @@ export default function App() {
         if (data.active_camera && data.active_camera !== activeCam) {
           setActiveCam(data.active_camera)
         }
+        if (data.active_camera && data.active_camera !== featuredCamera) {
+          setFeaturedCamera(data.active_camera)
+          setFeedFlashing(true)
+          setTimeout(() => setFeedFlashing(false), 1000)
+        }
       } catch (err) {
         console.error('Auto-follow poll failed', err)
       }
     }, 2000)
     return () => clearInterval(interval)
-  }, [autoFollow, activeCam])
+  }, [autoFollow, activeCam, featuredCamera])
 
   const anyRunning = cameras.some(c => c.status === 'running')
   const activeCamObj = cameras.find(c => c.id === activeCam)
@@ -198,6 +233,7 @@ export default function App() {
     if (res.ok) {
       setCameras(prev => prev.map((c, i) => i === idx ? { ...c, status: 'running' } : c))
       if (!activeCam) setActiveCam(cam.id)
+      if (!featuredCamera) setFeaturedCamera(cam.id)
       // Auto-save camera config to localStorage
       const savedCams = JSON.parse(localStorage.getItem('ft_saved_cameras') || '[]')
       const record = { name: cam.name, source: cam.source, path: cam.path, rtspUrl: cam.rtspUrl }
@@ -218,6 +254,10 @@ export default function App() {
       const next = cameras.find(c => c.id !== camId && c.status === 'running')
       setActiveCam(next ? next.id : null)
     }
+    if (featuredCamera === camId) {
+      const next = cameras.find(c => c.id !== camId && c.status === 'running')
+      setFeaturedCamera(next ? next.id : null)
+    }
   }
 
   const handleResetSetup = async () => {
@@ -234,6 +274,7 @@ export default function App() {
     setNumCameras(null)
     setActiveCam(null)
     setAutoFollow(false)
+    setFeaturedCamera(null)
   }
 
   // ── Person search handlers ──
@@ -287,6 +328,50 @@ export default function App() {
     setTargetStatus(null)
     setTargetFaceId(null)
     setTargetPhotoCount(0)
+  }
+
+  // ── Watchlist handlers ──
+
+  const handleAddPersonFileChange = (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    setAddPersonFile(file)
+    setAddPersonPreview(URL.createObjectURL(file))
+  }
+
+  const handleAddPerson = async () => {
+    if (!addPersonName.trim() || !addPersonFile) return
+    setAddPersonLoading(true)
+    try {
+      const form = new FormData()
+      form.append('name', addPersonName.trim())
+      form.append('photo', addPersonFile)
+      const res = await fetch(`${API}/watchlist/add`, { method: 'POST', body: form })
+      if (!res.ok) { const e = await res.json(); alert(e.detail); return }
+      setShowAddPersonModal(false)
+      setAddPersonName('')
+      setAddPersonFile(null)
+      setAddPersonPreview(null)
+      fetch(`${API}/watchlist`).then(r => r.json()).then(setWatchlistEntries)
+    } catch (err) { console.error('Add to watchlist failed', err) }
+    finally { setAddPersonLoading(false) }
+  }
+
+  const handleRemoveWatchlistEntry = async (id) => {
+    await fetch(`${API}/watchlist/${id}`, { method: 'DELETE' })
+    setWatchlistEntries(prev => prev.filter(e => e.id !== id))
+  }
+
+  const handleAcknowledgeAlert = async (id) => {
+    await fetch(`${API}/alerts/${id}/acknowledge`, { method: 'POST' })
+    setWatchlistAlerts(prev => prev.filter(a => a.id !== id))
+  }
+
+  const handleAcknowledgeAllAlerts = async () => {
+    await Promise.all(watchlistAlerts.map(a =>
+      fetch(`${API}/alerts/${a.id}/acknowledge`, { method: 'POST' })
+    ))
+    setWatchlistAlerts([])
   }
 
   // ── Analytics & Settings handlers ──
@@ -392,6 +477,10 @@ export default function App() {
               className={`${activePage === 'settings' ? 'text-white border-b border-white pb-1' : 'text-on-surface-variant hover:text-white'} font-medium transition-all duration-300 px-3 py-1 rounded-md text-[0.75rem] uppercase tracking-wider cursor-pointer`}
               onClick={() => setActivePage('settings')}
             >Settings</a>
+            <a
+              className={`${activePage === 'watchlist' ? 'text-white border-b border-white pb-1' : 'text-on-surface-variant hover:text-white'} font-medium transition-all duration-300 px-3 py-1 rounded-md text-[0.75rem] uppercase tracking-wider cursor-pointer`}
+              onClick={() => setActivePage('watchlist')}
+            >Watchlist</a>
           </nav>
         </div>
         <div className="flex items-center gap-4">
@@ -409,33 +498,58 @@ export default function App() {
                 className="material-symbols-outlined cursor-pointer hover:text-white transition-colors"
                 onClick={() => setShowAlerts(a => !a)}
               >notifications</span>
-              {alerts.filter(a => !a.read).length > 0 && (
+              {watchlistAlerts.length > 0 && (
                 <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center pointer-events-none">
-                  {alerts.filter(a => !a.read).length}
+                  {watchlistAlerts.length}
                 </span>
               )}
               {showAlerts && (
-                <div className="absolute right-0 top-8 w-80 bg-[#171717] border border-surface-border rounded-xl shadow-2xl z-50 overflow-hidden">
+                <div className="absolute right-0 top-8 w-96 bg-[#171717] border border-surface-border rounded-xl shadow-2xl z-50 overflow-hidden">
                   <div className="flex justify-between items-center px-4 py-3 border-b border-surface-border">
-                    <span className="text-xs font-mono text-white uppercase tracking-wider">Notifications</span>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setAlerts(prev => prev.map(a => ({ ...a, read: true }))) }}
-                      className="text-[0.625rem] font-mono text-neutral-500 hover:text-white transition-colors"
-                    >Mark all read</button>
+                    <span className="text-xs font-mono text-white uppercase tracking-wider">Watchlist Alerts</span>
+                    {watchlistAlerts.length > 0 && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleAcknowledgeAllAlerts() }}
+                        className="text-[0.625rem] font-mono text-neutral-500 hover:text-white transition-colors"
+                      >Mark all acknowledged</button>
+                    )}
                   </div>
-                  {alerts.length === 0 && (
-                    <p className="px-4 py-6 text-xs font-mono text-neutral-500 text-center">No notifications yet</p>
+                  {watchlistAlerts.length === 0 && (
+                    <p className="px-4 py-6 text-xs font-mono text-zinc-500 text-center">No active alerts</p>
                   )}
-                  {alerts.map(alert => (
-                    <div
-                      key={alert.id}
-                      onClick={(e) => { e.stopPropagation(); setAlerts(prev => prev.map(a => a.id === alert.id ? { ...a, read: true } : a)) }}
-                      className={`px-4 py-3 border-b border-surface-border cursor-pointer hover:bg-[#262626] transition-colors ${alert.read ? 'opacity-50' : ''}`}
-                    >
-                      <p className="text-xs text-white font-mono">{alert.message}</p>
-                      <p className="text-[0.625rem] text-neutral-500 mt-0.5">{relativeTime(alert.time)}</p>
-                    </div>
-                  ))}
+                  <div className="max-h-96 overflow-y-auto">
+                    {watchlistAlerts.slice(0, 10).map(alert => (
+                      <div key={alert.id} className="px-4 py-3 border-b border-surface-border hover:bg-[#262626] transition-colors">
+                        <div className="flex gap-3">
+                          {alert.snapshot_b64 && (
+                            <img
+                              src={`data:image/jpeg;base64,${alert.snapshot_b64}`}
+                              className="w-10 h-10 rounded object-cover flex-shrink-0"
+                              alt="snapshot"
+                            />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs text-amber-400 font-mono font-medium truncate">
+                              ⚠ Match Found: {alert.watchlist_name}
+                            </p>
+                            <p className="text-[0.625rem] text-zinc-400 font-mono mt-0.5">
+                              #{alert.face_id?.slice(0, 5).toUpperCase()} · {alert.camera_id}
+                            </p>
+                            <div className="flex items-center justify-between mt-1">
+                              <span className="text-[0.625rem] text-zinc-500">{relativeTime(alert.matched_at)}</span>
+                              <span className="text-[0.625rem] text-emerald-400 font-mono">
+                                {(alert.similarity * 100).toFixed(1)}% match
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleAcknowledgeAlert(alert.id) }}
+                          className="mt-2 text-[0.625rem] font-mono text-neutral-500 hover:text-white border border-surface-border px-2 py-0.5 rounded transition-colors"
+                        >Acknowledge</button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -482,8 +596,14 @@ export default function App() {
         >
           <span className="material-symbols-outlined">settings</span>
         </div>
-        <div className="p-3 text-on-surface-variant hover:bg-surface-variant hover:text-white rounded-lg transition-all duration-200 cursor-pointer">
-          <span className="material-symbols-outlined">assessment</span>
+        <div
+          className={`relative p-3 cursor-pointer rounded-lg transition-all duration-200 ${activePage === 'watchlist' ? 'text-white' : 'text-on-surface-variant hover:bg-surface-variant hover:text-white'}`}
+          onClick={() => setActivePage('watchlist')}
+        >
+          <span className="material-symbols-outlined">person_search</span>
+          {watchlistAlerts.length > 0 && (
+            <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+          )}
         </div>
         <div className="mt-auto flex flex-col gap-4">
           <span className="material-symbols-outlined text-neutral-600 hover:text-white cursor-pointer">support_agent</span>
@@ -554,6 +674,19 @@ export default function App() {
                 <p className="mt-4 text-[0.6875rem] font-mono text-neutral-500">STABLE VS LAST HOUR</p>
               </div>
             </div>
+
+            {/* WATCHLIST ALERT BANNER */}
+            {watchlistAlerts.length > 0 && (
+              <div
+                className="mb-6 flex items-center gap-3 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 cursor-pointer"
+                onClick={() => setShowAlerts(true)}
+              >
+                <span className="material-symbols-outlined text-red-400 text-sm">warning</span>
+                <span className="text-red-400 text-xs font-mono">
+                  ⚠ {watchlistAlerts.length} watchlist match{watchlistAlerts.length !== 1 ? 'es' : ''} detected — view alerts
+                </span>
+              </div>
+            )}
 
             {/* MIDDLE ROW: Live Cameras + Live Event Feed */}
             <div className="flex gap-6 mb-6" style={{ alignItems: 'stretch' }}>
@@ -1107,13 +1240,21 @@ export default function App() {
                     </div>
 
                     {/* MJPEG stream — key forces remount on camera switch */}
-                    {activeCam ? (
-                      <img
-                        key={activeCam}
-                        src={`http://localhost:8000/stream/feed?camera_id=${activeCam}`}
-                        className="w-full rounded-lg bg-black"
-                        alt="Live camera feed"
-                      />
+                    {(featuredCamera ?? activeCam) ? (
+                      <div className="relative">
+                        <img
+                          key={featuredCamera ?? activeCam}
+                          src={`${API}/stream/feed?camera_id=${featuredCamera ?? activeCam}`}
+                          className={`w-full rounded-lg bg-black transition-all duration-100 ${feedFlashing ? 'border-2 border-yellow-400' : ''}`}
+                          alt="Live camera feed"
+                        />
+                        {autoFollow && featuredCamera && (
+                          <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-black/70 border border-yellow-400/50 px-2 py-1 rounded-full pointer-events-none">
+                            <span className="text-yellow-400 text-[10px]">●</span>
+                            <span className="text-[10px] font-mono text-yellow-400 uppercase tracking-wider">AUTO-FOLLOWING</span>
+                          </div>
+                        )}
+                      </div>
                     ) : (
                       <div className="w-full h-64 rounded-lg bg-surface-variant flex items-center justify-center border border-surface-border border-dashed">
                         <p className="text-neutral-500 text-sm font-mono">SELECT A CAMERA BELOW</p>
@@ -1126,15 +1267,20 @@ export default function App() {
                       {cameras.filter(c => c.status === 'running').map(cam => (
                         <button
                           key={cam.id}
-                          onClick={() => setActiveCam(cam.id)}
+                          onClick={() => { setActiveCam(cam.id); setFeaturedCamera(cam.id) }}
                           className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-mono font-bold transition-colors ${
-                            activeCam === cam.id
+                            autoFollow && featuredCamera === cam.id
+                              ? 'bg-yellow-400/10 text-yellow-400 border-2 border-yellow-400'
+                              : activeCam === cam.id
                               ? 'bg-white text-black'
                               : 'bg-surface-variant text-neutral-400 hover:text-white border border-surface-border'
                           }`}
                         >
                           <span className="w-1.5 h-1.5 rounded-full bg-green-400 flex-shrink-0"></span>
                           {cam.name}
+                          {autoFollow && featuredCamera === cam.id && (
+                            <span className="text-[8px] font-mono text-yellow-400 uppercase tracking-widest">TRACKING</span>
+                          )}
                         </button>
                       ))}
                       {cameras.filter(c => c.status === 'stopped').map(cam => (
@@ -1294,6 +1440,109 @@ export default function App() {
             </div>
           )
         })()}
+
+        {/* ── Watchlist Page ── */}
+        {activePage === 'watchlist' && (
+          <div className="max-w-5xl mx-auto">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-8">
+              <div>
+                <h1 className="text-2xl font-bold text-white tracking-tight">Watchlist</h1>
+                <p className="text-xs font-mono text-neutral-500 mt-1">
+                  {watchlistEntries.length} {watchlistEntries.length === 1 ? 'person' : 'people'} enrolled
+                </p>
+              </div>
+              <button
+                onClick={() => setShowAddPersonModal(true)}
+                className="flex items-center gap-2 bg-white text-black px-4 py-2 rounded-xl text-sm font-bold hover:bg-neutral-200 transition-colors"
+              >
+                <span className="material-symbols-outlined text-[18px]">person_add</span>
+                Add Person
+              </button>
+            </div>
+
+            {/* Watchlist Grid */}
+            {watchlistEntries.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-24 text-center">
+                <span className="material-symbols-outlined text-5xl text-neutral-700 mb-4">person_search</span>
+                <p className="text-neutral-500 font-mono text-sm">No people on watchlist yet</p>
+                <p className="text-neutral-600 font-mono text-xs mt-1">Click "Add Person" to enroll someone</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {watchlistEntries.map(entry => (
+                  <div key={entry.id} className="bg-surface-container rounded-xl border border-surface-border overflow-hidden">
+                    <div className="aspect-square bg-[#111] flex items-center justify-center overflow-hidden">
+                      {entry.photo_b64 ? (
+                        <img
+                          src={`data:image/jpeg;base64,${entry.photo_b64}`}
+                          className="w-full h-full object-cover"
+                          alt={entry.name}
+                        />
+                      ) : (
+                        <span className="material-symbols-outlined text-4xl text-neutral-700">person</span>
+                      )}
+                    </div>
+                    <div className="px-3 py-2">
+                      <p className="text-sm font-medium text-white truncate">{entry.name}</p>
+                      <p className="text-[0.625rem] font-mono text-neutral-500 mt-0.5">
+                        {entry.added_at ? new Date(entry.added_at).toLocaleDateString() : '—'}
+                      </p>
+                      <button
+                        onClick={() => handleRemoveWatchlistEntry(entry.id)}
+                        className="mt-2 w-full text-[0.625rem] font-mono text-red-500 hover:text-red-400 border border-red-500/30 hover:border-red-400/50 px-2 py-1 rounded-lg transition-colors"
+                      >Remove</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Add Person Modal */}
+            {showAddPersonModal && (
+              <div
+                className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
+                onClick={() => { setShowAddPersonModal(false); setAddPersonName(''); setAddPersonFile(null); setAddPersonPreview(null) }}
+              >
+                <div className="bg-[#111] border border-surface-border rounded-2xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
+                  <h2 className="text-lg font-bold text-white mb-4">Add Person to Watchlist</h2>
+                  <div className="flex flex-col gap-4">
+                    <input
+                      type="text"
+                      placeholder="Full name"
+                      value={addPersonName}
+                      onChange={e => setAddPersonName(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleAddPerson()}
+                      className="w-full bg-[#1a1a1a] border border-surface-border rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-neutral-500 transition-colors placeholder-neutral-600"
+                    />
+                    <label className="border-2 border-dashed border-surface-border rounded-xl p-6 text-center cursor-pointer hover:border-neutral-500 transition-colors">
+                      {addPersonPreview ? (
+                        <img src={addPersonPreview} className="w-32 h-32 object-cover rounded-lg mx-auto" alt="preview" />
+                      ) : (
+                        <>
+                          <span className="material-symbols-outlined text-3xl text-neutral-600 block mb-2">upload_file</span>
+                          <span className="text-xs font-mono text-neutral-500">Click to upload photo</span>
+                        </>
+                      )}
+                      <input type="file" accept="image/*" className="hidden" onChange={handleAddPersonFileChange} />
+                    </label>
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => { setShowAddPersonModal(false); setAddPersonName(''); setAddPersonFile(null); setAddPersonPreview(null) }}
+                        className="flex-1 py-2.5 border border-surface-border rounded-xl text-sm text-neutral-400 hover:text-white transition-colors"
+                      >Cancel</button>
+                      <button
+                        onClick={handleAddPerson}
+                        disabled={!addPersonName.trim() || !addPersonFile || addPersonLoading}
+                        className="flex-1 py-2.5 bg-white text-black rounded-xl text-sm font-bold hover:bg-neutral-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      >{addPersonLoading ? 'Adding...' : 'Add to Watchlist'}</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
       </main>
     </div>
