@@ -9,7 +9,8 @@
       "Bash(python -c \"import supervision as sv; import inspect; print\\(inspect.signature\\(sv.ByteTrack.__init__\\)\\); t=sv.ByteTrack\\(\\); print\\(dir\\(t\\)\\)\")",
       "Bash(python modules/face_registry.py)",
       "Bash(python main.py --source video --path \"D:/Software Systems \\(23-28\\)/Projects/extras/face-tracker/Video Datasets/record_20250620_183903.mp4\")",
-      "Bash(npm create vite@latest dashboard -- --template react)"
+      "Bash(npm create vite@latest dashboard -- --template react)",
+      "mcp__plugin_claude-mem_mcp-search__smart_outline"
     ]
   }
 }

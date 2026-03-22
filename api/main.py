@@ -18,6 +18,7 @@ Run with:
   uvicorn api.main:app --reload --port 8000
 """
 
+import asyncio
 import base64
 import logging
 import queue
@@ -33,7 +34,7 @@ import numpy as np
 import psycopg2
 import psycopg2.extras
 import psycopg2.pool
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -687,7 +688,7 @@ async def stream_upload(file: UploadFile = File(...)):
 
 
 @app.get("/stream/feed")
-def stream_feed(camera_id: str = "cam_01"):
+async def stream_feed(request: Request, camera_id: str = "cam_01"):
     """MJPEG stream of annotated frames from the running pipeline for the given camera."""
     cam = _cameras.get(camera_id)
     if not cam:
@@ -696,29 +697,74 @@ def stream_feed(camera_id: str = "cam_01"):
     frame_queue = cam["queue"]
     stop_event = cam["stop"]
 
-    frame_interval = 1.0 / 25  # 25 FPS cap
-    last_frame_time = 0.0
+    async def generate():
+        frame_interval = 1.0 / 30  # 30 FPS cap
+        last_frame_time = 0.0
 
-    def generate():
-        nonlocal last_frame_time
-        while True:
+        # Wait up to 3 seconds for first frame; send placeholder if none arrives
+        pending_frame = None
+        for _ in range(60):  # 60 × 50ms = 3 seconds
+            if await request.is_disconnected():
+                return
             try:
-                frame = frame_queue.get(timeout=1.0)
+                pending_frame = frame_queue.get_nowait()
+                break
+            except queue.Empty:
+                if stop_event.is_set():
+                    return
+                await asyncio.sleep(0.05)
+
+        if pending_frame is None:
+            placeholder = np.zeros((540, 960, 3), dtype=np.uint8)
+            cv2.putText(placeholder, "Connecting...", (350, 270),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+            _, buf = cv2.imencode(".jpg", placeholder)
+            yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" +
+                   buf.tobytes() + b"\r\n")
+
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                if pending_frame is not None:
+                    frame = pending_frame
+                    pending_frame = None
+                else:
+                    try:
+                        frame = frame_queue.get_nowait()
+                    except queue.Empty:
+                        if stop_event.is_set():
+                            break
+                        await asyncio.sleep(0.005)
+                        continue
+
                 now = time.time()
-                if now - last_frame_time < frame_interval:
-                    time.sleep(0.001)
+                elapsed = now - last_frame_time
+                if elapsed < frame_interval:
+                    await asyncio.sleep(frame_interval - elapsed)
                     continue
-                last_frame_time = now
-                _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                last_frame_time = time.time()
+
+                # Resize to 1280px wide for smooth streaming (keep aspect ratio)
+                target_width = 1280
+                h, w = frame.shape[:2]
+                if w > target_width:
+                    scale = target_width / w
+                    frame = cv2.resize(
+                        frame, (target_width, int(h * scale)),
+                        interpolation=cv2.INTER_LINEAR,
+                    )
+
+                ret2, buf = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 65])
+                if not ret2:
+                    continue
                 yield (
                     b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
                     + buf.tobytes()
                     + b"\r\n"
                 )
-            except queue.Empty:
-                if stop_event.is_set():
-                    break
-                continue
+        except Exception:
+            pass
 
     return StreamingResponse(
         generate(),
@@ -784,10 +830,10 @@ async def search_set_target(image: UploadFile = File(...)):
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(img_bytes)
 
-    target_norm = _extract_normalised_embedding(img_bytes)
+    target_norm = await asyncio.to_thread(_extract_normalised_embedding, img_bytes)
     _target_embeddings = [target_norm]
 
-    best_id, best_sim = _search_db_for_target(target_norm, threshold=0.50)
+    best_id, best_sim = await asyncio.to_thread(_search_db_for_target, target_norm, 0.50)
     _target_face_id = best_id if best_id else "SEARCHING"
     logger.info("SEARCH_TARGET_SET matched_face_id=%s sim=%.4f photos=1", _target_face_id, best_sim)
     return {"status": "target_set", "matched_face_id": _target_face_id, "total_photos": 1}
@@ -810,13 +856,13 @@ async def search_add_photo(image: UploadFile = File(...)):
     dest = Path(__file__).parent.parent / "data" / f"search_target_{idx}.jpg"
     dest.write_bytes(img_bytes)
 
-    new_norm = _extract_normalised_embedding(img_bytes)
+    new_norm = await asyncio.to_thread(_extract_normalised_embedding, img_bytes)
     _target_embeddings.append(new_norm)
 
     # Re-run DB search across all enrolled embeddings; keep best match
     best_id, best_sim = None, -1.0
     for t_norm in _target_embeddings:
-        fid, sim = _search_db_for_target(t_norm, threshold=0.50)
+        fid, sim = await asyncio.to_thread(_search_db_for_target, t_norm, 0.50)
         if sim > best_sim:
             best_sim, best_id = sim, fid
 
@@ -854,7 +900,9 @@ def search_active_camera():
     if _target_face_id and _target_face_id != "SEARCHING":
         for cam_id, face_ids in _camera_last_resolved.items():
             if _target_face_id in face_ids:
-                return {"active_camera": cam_id}
+                cam_entry = _cameras.get(cam_id)
+                if cam_entry and cam_entry.get("thread") and cam_entry["thread"].is_alive():
+                    return {"active_camera": cam_id}
     for cam_id, cam in _cameras.items():
         if cam["thread"].is_alive():
             return {"active_camera": cam_id}

@@ -48,6 +48,8 @@ export default function App() {
   const [autoFollow, setAutoFollow] = useState(false)
   const [featuredCamera, setFeaturedCamera] = useState(null)
   const [feedFlashing, setFeedFlashing] = useState(false)
+  const [feedLoading, setFeedLoading] = useState(true)
+  const [streamKey, setStreamKey] = useState(Date.now())
 
   // Person search state
   const [targetStatus, setTargetStatus] = useState(null)  // null | 'found' | 'searching'
@@ -211,11 +213,13 @@ export default function App() {
       try {
         const res = await fetch(`${API}/search/active-camera`)
         const data = await res.json()
-        if (data.active_camera && data.active_camera !== activeCam) {
-          setActiveCam(data.active_camera)
-        }
-        if (data.active_camera && data.active_camera !== featuredCamera) {
-          setFeaturedCamera(data.active_camera)
+        const newCam = data.active_camera
+        if (newCam && newCam !== featuredCamera) {
+          setFeedLoading(true)
+          setTimeout(() => {
+            setActiveCam(newCam)
+            setFeaturedCamera(newCam)
+          }, 300)
           setFeedFlashing(true)
           setTimeout(() => setFeedFlashing(false), 1000)
         }
@@ -225,6 +229,12 @@ export default function App() {
     }, 2000)
     return () => clearInterval(interval)
   }, [autoFollow, activeCam, featuredCamera])
+
+  // Reset feed loading state and force img remount whenever active camera changes
+  useEffect(() => {
+    setFeedLoading(true)
+    setStreamKey(Date.now())
+  }, [activeCam, featuredCamera])
 
   // Start cameras from Camera Groups (Settings page) after navigation completes
   useEffect(() => {
@@ -1305,11 +1315,21 @@ export default function App() {
                     {/* MJPEG stream — key forces remount on camera switch */}
                     {(featuredCamera ?? activeCam) ? (
                       <div className="relative">
+                        {feedLoading && (
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/60 rounded-xl z-10">
+                            <div className={`text-sm font-mono animate-pulse ${autoFollow ? 'text-yellow-400' : 'text-zinc-500'}`}>
+                              {autoFollow ? '⚡ Switching to active camera...' : 'Connecting to stream...'}
+                            </div>
+                          </div>
+                        )}
                         <img
-                          key={featuredCamera ?? activeCam}
-                          src={`${API}/stream/feed?camera_id=${featuredCamera ?? activeCam}`}
+                          key={streamKey}
+                          src={`${API}/stream/feed?camera_id=${featuredCamera ?? activeCam}&t=${streamKey}`}
                           className={`w-full rounded-lg bg-black transition-all duration-100 ${feedFlashing ? 'border-2 border-yellow-400' : ''}`}
+                          style={{ imageRendering: 'auto' }}
                           alt="Live camera feed"
+                          onLoad={() => setFeedLoading(false)}
+                          onError={() => setFeedLoading(true)}
                         />
                         {autoFollow && featuredCamera && (
                           <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-black/70 border border-yellow-400/50 px-2 py-1 rounded-full pointer-events-none">
