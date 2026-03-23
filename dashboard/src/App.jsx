@@ -5,8 +5,13 @@ import {
 } from 'recharts'
 import { useNavigate } from 'react-router-dom'
 import './App.css'
+import {
+  API, fetchStats, fetchEvents, fetchHourlyData, fetchDemographics,
+  fetchFaces, fetchLiveFaces, fetchWatchlistAlerts, fetchWatchlist,
+  uploadStreamFile, startStream, stopStream, addWatchlistPerson,
+  removeWatchlistPerson, acknowledgeAlert
+} from './services/api'
 
-const API = 'http://localhost:8000'
 const CORRECT_PIN = '1234'
 
 export default function App() {
@@ -101,10 +106,10 @@ export default function App() {
   const fetchAll = async () => {
     try {
       const [s, e, h, d] = await Promise.all([
-        fetch(`${API}/stats`).then(r => r.json()),
-        fetch(`${API}/events`).then(r => r.json()),
-        fetch(`${API}/hourly`).then(r => r.json()),
-        fetch(`${API}/demographics`).then(r => r.json()),
+        fetchStats(),
+        fetchEvents(),
+        fetchHourlyData('day'),
+        fetchDemographics(),
       ])
       setStats(s)
       setEvents(e)
@@ -143,15 +148,14 @@ export default function App() {
 
   useEffect(() => {
     if (chartView === 'week') {
-      fetch(`${API}/hourly?range=week`).then(r => r.json()).then(setWeeklyData).catch(console.error)
+      fetchHourlyData('week').then(setWeeklyData).catch(console.error)
     }
   }, [chartView])
 
   useEffect(() => {
     if (activePage === 'analytics') {
-      fetch(`${API}/faces`)
-        .then(r => r.ok ? r.json() : [])
-        .then(data => setFaces(Array.isArray(data) ? data : []))
+      fetchFaces()
+        .then(setFaces)
         .catch(console.error)
     }
   }, [activePage])
@@ -165,9 +169,8 @@ export default function App() {
   useEffect(() => {
     if (activePage !== 'analytics' || faceView !== 'live') return
     const fetchLive = () =>
-      fetch(`${API}/faces/live`)
-        .then(r => r.ok ? r.json() : [])
-        .then(data => setLiveFaces(Array.isArray(data) ? data : []))
+      fetchLiveFaces()
+        .then(setLiveFaces)
         .catch(console.error)
     fetchLive()
     const id = setInterval(fetchLive, 5000)
@@ -176,14 +179,14 @@ export default function App() {
 
   // Poll watchlist alerts every 5s
   useEffect(() => {
-    const fetchWatchlistAlerts = async () => {
+    const fetchWatchlistAlertsPoll = async () => {
       try {
-        const res = await fetch(`${API}/alerts?unacknowledged_only=true`)
-        if (res.ok) setWatchlistAlerts(await res.json())
+        const res = await fetchWatchlistAlerts()
+        setWatchlistAlerts(res)
       } catch (err) { console.error('Watchlist alerts poll failed', err) }
     }
-    fetchWatchlistAlerts()
-    const id = setInterval(fetchWatchlistAlerts, 5000)
+    fetchWatchlistAlertsPoll()
+    const id = setInterval(fetchWatchlistAlertsPoll, 5000)
     return () => clearInterval(id)
   }, [])
 
@@ -222,7 +225,7 @@ export default function App() {
       setCameraGroups(JSON.parse(localStorage.getItem('ft_camera_groups') || '[]'))
     }
     if (activePage === 'watchlist') {
-      fetch(`${API}/watchlist`).then(r => r.json()).then(setWatchlistEntries).catch(console.error)
+      fetchWatchlist().then(setWatchlistEntries).catch(console.error)
     }
   }, [activePage])
 
@@ -275,10 +278,7 @@ export default function App() {
   }
 
   const handleCamUpload = async (idx, file) => {
-    const form = new FormData()
-    form.append('file', file)
-    const res = await fetch(`${API}/stream/upload`, { method: 'POST', body: form })
-    const data = await res.json()
+    const data = await uploadStreamFile(file)
     setCameras(prev => prev.map((c, i) => i === idx ? { ...c, path: data.path } : c))
   }
 
@@ -293,12 +293,8 @@ export default function App() {
       path: cam.source === 'video' ? cam.path : undefined,
       url: cam.source === 'rtsp' ? cam.rtspUrl : undefined,
     }
-    const res = await fetch(`${API}/stream/start`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    if (res.ok) {
+    try {
+      await startStream(body)
       setCameras(prev => prev.map(c => c.id === cam.id ? { ...c, status: 'running' } : c))
       setActiveCam(prev => prev || cam.id)
       setFeaturedCamera(prev => prev || cam.id)
@@ -308,6 +304,8 @@ export default function App() {
       const existIdx = savedCams.findIndex(s => s.name === cam.name)
       if (existIdx >= 0) savedCams[existIdx] = record; else savedCams.push(record)
       localStorage.setItem('ft_saved_cameras', JSON.stringify(savedCams))
+    } catch (err) {
+      console.error('Failed to start stream', err)
     }
   }
 
@@ -316,11 +314,11 @@ export default function App() {
   }
 
   const handleCamStop = async (camId) => {
-    await fetch(`${API}/stream/stop`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ camera_id: camId }),
-    })
+    try {
+      await stopStream(camId)
+    } catch (e) {
+      console.error(e)
+    }
     setCameras(prev => prev.map(c => c.id === camId ? { ...c, status: 'stopped' } : c))
     if (activeCam === camId) {
       const next = cameras.find(c => c.id !== camId && c.status === 'running')
@@ -335,11 +333,11 @@ export default function App() {
   const handleResetSetup = async () => {
     for (const cam of cameras) {
       if (cam.status === 'running') {
-        await fetch(`${API}/stream/stop`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ camera_id: cam.id }),
-        })
+        try {
+          await stopStream(cam.id)
+        } catch (e) {
+          console.error(e)
+        }
       }
     }
     setCameras([])
@@ -362,21 +360,14 @@ export default function App() {
     setAddPersonLoading(true)
     setAddPersonError('')
     try {
-      const form = new FormData()
-      form.append('name', addPersonName.trim())
-      form.append('photo', addPersonFile)
-      const res = await fetch(`${API}/watchlist/add`, { method: 'POST', body: form })
-      if (!res.ok) {
-        const e = await res.json()
-        throw new Error(e.detail || 'Failed to add person')
-      }
+      await addWatchlistPerson(addPersonName.trim(), addPersonFile)
       // Success — close modal and refresh list
       setShowAddPersonModal(false)
       setAddPersonName('')
       setAddPersonFile(null)
       setAddPersonPreview(null)
       setAddPersonError('')
-      fetch(`${API}/watchlist`).then(r => r.json()).then(setWatchlistEntries)
+      fetchWatchlist().then(setWatchlistEntries).catch(console.error)
     } catch (err) {
       console.error('Add to watchlist failed', err)
       setAddPersonError(err.message || 'Something went wrong')
@@ -394,20 +385,32 @@ export default function App() {
   }
 
   const handleRemoveWatchlistEntry = async (id) => {
-    await fetch(`${API}/watchlist/${id}`, { method: 'DELETE' })
-    setWatchlistEntries(prev => prev.filter(e => e.id !== id))
+    try {
+      await removeWatchlistPerson(id)
+      setWatchlistEntries(prev => prev.filter(e => e.id !== id))
+    } catch (e) {
+      console.error(e)
+    }
   }
 
   const handleAcknowledgeAlert = async (id) => {
-    await fetch(`${API}/alerts/${id}/acknowledge`, { method: 'POST' })
-    setWatchlistAlerts(prev => prev.filter(a => a.id !== id))
+    try {
+      await acknowledgeAlert(id)
+      setWatchlistAlerts(prev => prev.filter(a => a.id !== id))
+    } catch (e) {
+      console.error(e)
+    }
   }
 
   const handleAcknowledgeAllAlerts = async () => {
-    await Promise.all(watchlistAlerts.map(a =>
-      fetch(`${API}/alerts/${a.id}/acknowledge`, { method: 'POST' })
-    ))
-    setWatchlistAlerts([])
+    try {
+      await Promise.all(watchlistAlerts.map(a =>
+        acknowledgeAlert(a.id)
+      ))
+      setWatchlistAlerts([])
+    } catch (e) {
+      console.error(e)
+    }
   }
 
   const saveGroups = (groups) => {
@@ -1059,7 +1062,7 @@ export default function App() {
                         </div>
                         <button
                           onClick={() => {
-                            fetch(`${API}/faces`).then(r => r.json()).then(setFaces).catch(console.error)
+                            fetchFaces().then(setFaces).catch(console.error)
                             setFacesPage(0)
                           }}
                           className="text-[0.6875rem] uppercase font-bold tracking-[0.1em] text-neutral-400 hover:text-white transition-colors"

@@ -42,7 +42,7 @@ from pydantic import BaseModel
 # Config
 # ---------------------------------------------------------------------------
 
-DATABASE_URL = "postgresql://faceuser:facepass@localhost:5432/facetracker"
+DATABASE_URL = "postgresql://faceuser:facepass@127.0.0.1:5432/facetracker"
 _CONFIG_PATH = Path(__file__).parent.parent / "config.json"
 
 logger = logging.getLogger("api")

@@ -47,7 +47,6 @@ A real-time AI-driven face detection, recognition, and visitor counting system b
 │                    EMBEDDING LAYER                                   │
 │   InsightFace buffalo_l  ──►  512-dim L2-normalised vector          │
 │   CLAHE preprocessing (LAB space) for backlit/uneven lighting       │
-│   Age + Gender estimation as side output                            │
 └──────────────────────────┬──────────────────────────────────────────┘
                            │
                            ▼
@@ -77,11 +76,10 @@ A real-time AI-driven face detection, recognition, and visitor counting system b
                            ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                    API + DASHBOARD LAYER                             │
-│   FastAPI  ──►  18 REST endpoints + MJPEG stream                    │
+│   FastAPI  ──►  REST endpoints + MJPEG stream                       │
 │   React + Vite + Tailwind + Recharts dashboard                      │
 │   WebSocket /ws/live — real-time ENTRY/EXIT push                    │
-│   7 pages: Dashboard, Cameras, Search, Watchlist, Alerts,           │
-│            Analytics, Settings                                       │
+│   5 pages: Dashboard, Cameras, Watchlist, Analytics, Settings       │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -125,15 +123,12 @@ A real-time AI-driven face detection, recognition, and visitor counting system b
 
 | Feature | Description |
 |---|---|
-| Full React dashboard | 7-page SPA with live stats, charts, event feed |
+| Full React dashboard | 5-page SPA with live stats, charts, event feed |
 | Multi-camera support | Up to 4 simultaneous RTSP/video streams |
-| Person search | Upload photo → locate specific person across all camera feeds |
 | Watchlist + alerts | Enroll persons of interest, get real-time match alerts with snapshots |
 | CLAHE preprocessing | Contrast enhancement for backlit/uneven lighting conditions |
 | Quality-based buffering | 3-tier system: high (immediate), medium (buffered), low (skipped) |
 | EMA embedding updates | α=0.1 exponential moving average refines stored embeddings over time |
-| Age + gender estimation | Demographic inference on every registered face |
-| Auto-follow camera | Dashboard auto-switches featured camera when search target moves |
 | WebSocket live push | Real-time ENTRY/EXIT events pushed to dashboard without polling |
 | MJPEG live feed | Annotated video stream served at `/stream/feed` |
 | PIN authentication | Dashboard locked behind PIN (localStorage persistence) |
@@ -352,7 +347,6 @@ The task was decomposed into six independent modules with clear input/output con
 - FAISS cosine similarity re-identification
 - Exponential moving average embedding refinement
 - Entry/exit event detection with max_lost_frames timeout
-- Age and gender demographic estimation
 - Line crossing detection (normalized entry_line_y)
 - Overlay annotation with active/total counts
 
@@ -362,17 +356,15 @@ The task was decomposed into six independent modules with clear input/output con
 - `logs/exits/YYYY-MM-DD/` — cropped face images on EXIT
 - Database events table — face_id, event_type, timestamp, image_path, frame_num, camera_id
 
-**API (18 endpoints):**
-- `/stats`, `/events`, `/hourly`, `/demographics` — dashboard data
+**API:**
+- `/stats`, `/events`, `/hourly` — dashboard data
 - `/stream/start`, `/stream/stop`, `/stream/upload`, `/stream/feed` — camera control
-- `/search/set-target`, `/search/add-photo`, `/search/status`, `/search/clear`, `/search/active-camera` — person search
 - `/watchlist/add`, `/watchlist`, `/watchlist/{id}` — watchlist management
 - `/alerts`, `/alerts/{id}/acknowledge` — alert system
 
-**Dashboard (React, 7 pages):**
-- Dashboard: live KPI cards, hourly chart, demographics chart, recent events, live feed
-- Cameras: multi-camera wizard, start/stop per camera, auto-follow mode
-- Search: target photo upload, multi-angle enrollment, real-time match tracking
+**Dashboard (React, 5 pages):**
+- Dashboard: live KPI cards, hourly chart, recent events, live feed
+- Cameras: multi-camera wizard, start/stop per camera
 - Watchlist: enroll persons of interest, multi-photo support
 - Alerts: real-time watchlist match notifications with face snapshots
 - Analytics: CSV export of all events
@@ -450,10 +442,10 @@ The task was decomposed into six independent modules with clear input/output con
 
 ### Database — faces table (sample)
 
-| face_id | first_seen | last_seen | visit_count | estimated_age | estimated_gender |
-|---|---|---|---|---|---|
-| a3f1b2c4 | 2026-03-22 20:15:02 | 2026-03-22 20:16:30 | 1 | 28 | Male |
-| b7d9e012 | 2026-03-22 20:17:11 | 2026-03-22 20:19:44 | 1 | 34 | Female |
+| face_id | first_seen | last_seen | visit_count |
+|---|---|---|---|
+| a3f1b2c4 | 2026-03-22 20:15:02 | 2026-03-22 20:16:30 | 1 |
+| b7d9e012 | 2026-03-22 20:17:11 | 2026-03-22 20:19:44 | 1 |
 
 ### Folder structure (logs)
 
@@ -480,9 +472,6 @@ psql -U faceuser -d facetracker -c "SELECT COUNT(*) FROM faces;"
 
 # Recent events
 psql -U faceuser -d facetracker -c "SELECT face_id, event_type, timestamp FROM events ORDER BY timestamp DESC LIMIT 10;"
-
-# Demographics breakdown
-psql -U faceuser -d facetracker -c "SELECT estimated_gender, COUNT(*) FROM faces GROUP BY estimated_gender;"
 ```
 
 ---
