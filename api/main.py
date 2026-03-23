@@ -676,13 +676,13 @@ def stream_stop(body: StreamStop):
 
 
 @app.post("/stream/upload")
-def stream_upload(file: UploadFile = File(...)):
+async def stream_upload(file: UploadFile = File(...)):
     """Save an uploaded video file to data/uploads/ and return its path."""
     upload_dir = Path(__file__).parent.parent / "data" / "uploads"
     upload_dir.mkdir(parents=True, exist_ok=True)
     dest = upload_dir / file.filename
     with open(dest, "wb") as f:
-        f.write(file.file.read())
+        f.write(await file.read())
     logger.info("UPLOAD_SAVED path=%s size=%d", dest, dest.stat().st_size)
     return {"path": str(dest)}
 
@@ -700,14 +700,6 @@ async def stream_feed(request: Request, camera_id: str = "cam_01"):
     async def generate():
         frame_interval = 1.0 / 30  # 30 FPS cap
         last_frame_time = 0.0
-
-        def _encode_frame(f):
-            h, w = f.shape[:2]
-            if w > 1280:
-                scale = 1280 / w
-                f = cv2.resize(f, (1280, int(h * scale)), interpolation=cv2.INTER_LINEAR)
-            ok, buf = cv2.imencode(".jpg", f, [int(cv2.IMWRITE_JPEG_QUALITY), 65])
-            return ok, buf
 
         # Wait up to 3 seconds for first frame; send placeholder if none arrives
         pending_frame = None
@@ -753,7 +745,17 @@ async def stream_feed(request: Request, camera_id: str = "cam_01"):
                     continue
                 last_frame_time = time.time()
 
-                ret2, buf = await asyncio.to_thread(_encode_frame, frame)
+                # Resize to 1280px wide for smooth streaming (keep aspect ratio)
+                target_width = 1280
+                h, w = frame.shape[:2]
+                if w > target_width:
+                    scale = target_width / w
+                    frame = cv2.resize(
+                        frame, (target_width, int(h * scale)),
+                        interpolation=cv2.INTER_LINEAR,
+                    )
+
+                ret2, buf = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 65])
                 if not ret2:
                     continue
                 yield (
@@ -815,7 +817,7 @@ def _search_db_for_target(target_norm: np.ndarray, threshold: float) -> tuple[Op
 
 
 @app.post("/search/set-target")
-def search_set_target(image: UploadFile = File(...)):
+async def search_set_target(image: UploadFile = File(...)):
     """
     Upload first photo of a target person. Resets the enrollment list to [this embedding].
     Searches the faces table with cosine similarity >= 0.50.
@@ -823,22 +825,22 @@ def search_set_target(image: UploadFile = File(...)):
     """
     global _target_embeddings, _target_face_id
 
-    img_bytes = image.file.read()
+    img_bytes = await image.read()
     dest = Path(__file__).parent.parent / "data" / "search_target_0.jpg"
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(img_bytes)
 
-    target_norm = _extract_normalised_embedding(img_bytes)
+    target_norm = await asyncio.to_thread(_extract_normalised_embedding, img_bytes)
     _target_embeddings = [target_norm]
 
-    best_id, best_sim = _search_db_for_target(target_norm, 0.50)
+    best_id, best_sim = await asyncio.to_thread(_search_db_for_target, target_norm, 0.50)
     _target_face_id = best_id if best_id else "SEARCHING"
     logger.info("SEARCH_TARGET_SET matched_face_id=%s sim=%.4f photos=1", _target_face_id, best_sim)
     return {"status": "target_set", "matched_face_id": _target_face_id, "total_photos": 1}
 
 
 @app.post("/search/add-photo")
-def search_add_photo(image: UploadFile = File(...)):
+async def search_add_photo(image: UploadFile = File(...)):
     """
     Upload an additional photo of the same target person (different angle/lighting).
     Appends the new embedding to _target_embeddings and re-runs the DB search
@@ -849,18 +851,18 @@ def search_add_photo(image: UploadFile = File(...)):
     if not _target_embeddings:
         raise HTTPException(status_code=400, detail="No target set yet. Use /search/set-target first.")
 
-    img_bytes = image.file.read()
+    img_bytes = await image.read()
     idx = len(_target_embeddings)
     dest = Path(__file__).parent.parent / "data" / f"search_target_{idx}.jpg"
     dest.write_bytes(img_bytes)
 
-    new_norm = _extract_normalised_embedding(img_bytes)
+    new_norm = await asyncio.to_thread(_extract_normalised_embedding, img_bytes)
     _target_embeddings.append(new_norm)
 
     # Re-run DB search across all enrolled embeddings; keep best match
     best_id, best_sim = None, -1.0
     for t_norm in _target_embeddings:
-        fid, sim = _search_db_for_target(t_norm, 0.50)
+        fid, sim = await asyncio.to_thread(_search_db_for_target, t_norm, 0.50)
         if sim > best_sim:
             best_sim, best_id = sim, fid
 
@@ -913,7 +915,7 @@ def search_active_camera():
 
 
 @app.post("/watchlist/add")
-def watchlist_add(name: str = Form(...), photo: UploadFile = File(...)):
+async def watchlist_add(name: str = Form(...), photo: UploadFile = File(...)):
     """
     Upload a photo of a person to add to the watchlist.
     Extracts a 512-dim InsightFace embedding and stores it.
@@ -921,15 +923,21 @@ def watchlist_add(name: str = Form(...), photo: UploadFile = File(...)):
     to their entry (multi-photo enrollment) instead of creating a duplicate.
     """
     global _watchlist_cache_ts
+    import asyncio
 
-    img_bytes = photo.file.read()
+    img_bytes = await photo.read()
     img = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
     if img is None:
         raise HTTPException(status_code=400, detail="Cannot decode uploaded image")
 
-    # Load embedder + run inference — runs in FastAPI threadpool (def endpoint)
-    embedder = _get_search_embedder()
-    faces = embedder.app.get(img)
+    loop = asyncio.get_event_loop()
+
+    # Load embedder + run inference in a thread — both are CPU-bound/blocking
+    def _run_embedder():
+        embedder = _get_search_embedder()   # lazy loads 300MB model on first call
+        return embedder.app.get(img)
+
+    faces = await loop.run_in_executor(None, _run_embedder)
     if not faces:
         raise HTTPException(status_code=400, detail="No face detected in uploaded photo")
     emb = np.array(faces[0].embedding, dtype=np.float32)
