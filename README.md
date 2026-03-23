@@ -142,7 +142,7 @@ A real-time AI-driven face detection, recognition, and visitor counting system b
 | Module | Technology | Reason |
 |---|---|---|
 | Face Detection | YOLOv11n-face | Lightweight, fast, face-optimised YOLO variant |
-| Face Recognition | InsightFace buffalo_l (w600k_r50) | 99.83% LFW accuracy, age/gender free |
+| Face Recognition | InsightFace buffalo_l (w600k_r50) | 99.83% LFW accuracy, very robust |
 | Face Tracking | ByteTrack via `supervision` | 171 FPS, lowest ID-switch rate vs DeepSORT |
 | Similarity Search | FAISS IndexFlatIP | Exact cosine similarity, sub-ms search |
 | Backend | FastAPI + Python 3.10+ | Async-capable, auto-docs, production-ready |
