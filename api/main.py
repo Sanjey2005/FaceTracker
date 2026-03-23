@@ -478,9 +478,44 @@ def get_faces():
     return [dict(row) for row in rows]
 
 
-# ---------------------------------------------------------------------------
-# Streaming — background pipeline thread
-# ---------------------------------------------------------------------------
+@app.get("/faces/live")
+def get_faces_live():
+    """
+    Return face records for people currently visible in any active stream.
+    Uses _camera_last_resolved (set of face_ids per camera, updated every
+    detection cycle) as the live presence source.
+    """
+    # Collect all face_ids currently visible across every camera
+    live_ids: set = set()
+    for face_id_set in _camera_last_resolved.values():
+        live_ids.update(face_id_set)
+
+    if not live_ids:
+        return []
+
+    conn = get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT face_id, first_seen, last_seen, visit_count,
+                       estimated_age, estimated_gender, photo_b64 AS image_b64
+                FROM   faces
+                WHERE  face_id = ANY(%s)
+                ORDER  BY last_seen DESC
+                """,
+                (list(live_ids),),
+            )
+            rows = cur.fetchall()
+    except psycopg2.Error as exc:
+        logger.error("FACES_LIVE_ERROR %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        _pool.putconn(conn)
+
+    return [dict(row) for row in rows]
+
+
 
 
 class StreamStart(BaseModel):
@@ -505,6 +540,8 @@ def _run_pipeline(
     draw overlay (white boxes for all tracks, red box for search target),
     push annotated frames into frame_queue.
     """
+    global _target_face_id, _target_embeddings
+
     from modules.config_loader import load_config
     from modules.database import Database
     from modules.face_detector import FaceDetector
@@ -557,6 +594,8 @@ def _run_pipeline(
     frame_id = 0
     face_id_status: dict = {}    # face_id → "NEW" | "EXISTING"
     watchlist_face_ids: set = set()  # face_ids confirmed to match watchlist
+    faces_entered: set = set()       # face_ids that have already got an ENTRY event
+    prev_active_tids: set = set()    # tracker_ids visible in the previous detection cycle
 
     try:
         while not stop_event.is_set():
@@ -592,7 +631,65 @@ def _run_pipeline(
                                 if _check_watchlist(camera_id, face_id, embedding, frame, track["bbox"]):
                                     watchlist_face_ids.add(face_id)
 
+                    # ── ENTRY: log once per face_id per session ──────────────
+                    resolved_face_id = last_resolved.get(tid)
+                    if resolved_face_id and resolved_face_id not in faces_entered:
+                        faces_entered.add(resolved_face_id)
+                        ts = datetime.now(timezone.utc).isoformat()
+                        if _pool:
+                            try:
+                                _conn = _pool.getconn()
+                                with _conn.cursor() as _cur:
+                                    _cur.execute(
+                                        """
+                                        INSERT INTO events
+                                            (face_id, event_type, timestamp, image_path, camera_id)
+                                        VALUES (%s, %s, %s, %s, %s)
+                                        """,
+                                        (resolved_face_id, "ENTRY", ts, "", camera_id),
+                                    )
+                                _conn.commit()
+                                logger.info("EVENT_ENTRY face_id=%s camera=%s", resolved_face_id, camera_id)
+                            except Exception as _exc:
+                                logger.error("EVENT_ENTRY_ERROR %s", _exc)
+                                try:
+                                    _conn.rollback()
+                                except Exception:
+                                    pass
+                            finally:
+                                _pool.putconn(_conn)
+
                 active_ids = {t["tracker_id"] for t in last_tracks}
+
+                # ── EXIT: tracker_ids that were present last cycle but are gone now ──
+                gone_tids = prev_active_tids - active_ids
+                for gone_tid in gone_tids:
+                    gone_face_id = last_resolved.get(gone_tid)
+                    if gone_face_id and _pool:
+                        ts = datetime.now(timezone.utc).isoformat()
+                        try:
+                            _conn = _pool.getconn()
+                            with _conn.cursor() as _cur:
+                                _cur.execute(
+                                    """
+                                    INSERT INTO events
+                                        (face_id, event_type, timestamp, image_path, camera_id)
+                                    VALUES (%s, %s, %s, %s, %s)
+                                    """,
+                                    (gone_face_id, "EXIT", ts, "", camera_id),
+                                )
+                            _conn.commit()
+                            logger.info("EVENT_EXIT face_id=%s camera=%s", gone_face_id, camera_id)
+                        except Exception as _exc:
+                            logger.error("EVENT_EXIT_ERROR %s", _exc)
+                            try:
+                                _conn.rollback()
+                            except Exception:
+                                pass
+                        finally:
+                            _pool.putconn(_conn)
+
+                prev_active_tids = active_ids
                 last_resolved = {k: v for k, v in last_resolved.items() if k in active_ids}
                 _camera_last_resolved[camera_id] = set(last_resolved.values())
 

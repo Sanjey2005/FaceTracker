@@ -193,7 +193,7 @@ export default function Landing({ onEnter }) {
             <div className="bg-zinc-900/30 backdrop-blur rounded-3xl p-8 border border-zinc-800 hover:border-emerald-500/30 transition-all hover:bg-zinc-900/50 group">
               <div className="w-14 h-14 bg-emerald-500/10 rounded-2xl flex items-center justify-center text-3xl mb-8 group-hover:scale-110 group-hover:bg-emerald-500/20 transition-all">🔄</div>
               <h3 className="text-2xl font-bold mb-3 tracking-tight">Multi-Camera Handoff</h3>
-              <p className="text-zinc-400 leading-relaxed">Auto-follows targets across 4 feeds. Seamlessly tracks individuals moving between different camera zones.</p>
+              <p className="text-zinc-400 leading-relaxed">Continuously tracks individuals moving between different camera zones, maintaining identity across simultaneous feeds.</p>
             </div>
             
             <div className="bg-zinc-900/30 backdrop-blur rounded-3xl p-8 border border-zinc-800 hover:border-emerald-500/30 transition-all hover:bg-zinc-900/50 group">

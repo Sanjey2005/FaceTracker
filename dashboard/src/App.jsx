@@ -46,16 +46,9 @@ export default function App() {
   const [cameras, setCameras] = useState([])
   const [numCameras, setNumCameras] = useState(null)
   const [activeCam, setActiveCam] = useState(null)
-  const [autoFollow, setAutoFollow] = useState(false)
   const [featuredCamera, setFeaturedCamera] = useState(null)
-  const [feedFlashing, setFeedFlashing] = useState(false)
 
-  // Person search state
-  const [targetStatus, setTargetStatus] = useState(null)  // null | 'found' | 'searching'
-  const [targetFaceId, setTargetFaceId] = useState(null)
-  const [targetPhotoCount, setTargetPhotoCount] = useState(0)
 
-  // Dashboard Live Cameras tile state (synced from localStorage)
   const [dashboardSavedCameras, setDashboardSavedCameras] = useState(() =>
     JSON.parse(localStorage.getItem('ft_saved_cameras') || '[]')
   )
@@ -68,6 +61,10 @@ export default function App() {
   const liveFeedRef = useRef(null)
   // Analytics page pagination
   const [eventsPage, setEventsPage] = useState(0)
+  // Registered People filter: 'all' | 'live'
+  const [faceView, setFaceView] = useState('all')
+  const [liveFaces, setLiveFaces] = useState([])
+  const [facesPage, setFacesPage] = useState(0)
   // Settings page re-render trigger
   const [settingsTick, setSettingsTick] = useState(0)
 
@@ -162,6 +159,19 @@ export default function App() {
     if (liveFeedRef.current) liveFeedRef.current.scrollTop = 0
   }, [events])
 
+  // Poll live faces every 5s when on analytics page and Live tab is active
+  useEffect(() => {
+    if (activePage !== 'analytics' || faceView !== 'live') return
+    const fetchLive = () =>
+      fetch(`${API}/faces/live`)
+        .then(r => r.ok ? r.json() : [])
+        .then(data => setLiveFaces(Array.isArray(data) ? data : []))
+        .catch(console.error)
+    fetchLive()
+    const id = setInterval(fetchLive, 5000)
+    return () => clearInterval(id)
+  }, [activePage, faceView])
+
   // Poll watchlist alerts every 5s
   useEffect(() => {
     const fetchWatchlistAlerts = async () => {
@@ -213,28 +223,6 @@ export default function App() {
       fetch(`${API}/watchlist`).then(r => r.json()).then(setWatchlistEntries).catch(console.error)
     }
   }, [activePage])
-
-  // Auto-follow: poll /search/active-camera every 2s when enabled
-  useEffect(() => {
-    if (!autoFollow) return
-    const interval = setInterval(async () => {
-      try {
-        const res = await fetch(`${API}/search/active-camera`)
-        const data = await res.json()
-        if (data.active_camera && data.active_camera !== activeCam) {
-          setActiveCam(data.active_camera)
-        }
-        if (data.active_camera && data.active_camera !== featuredCamera) {
-          setFeaturedCamera(data.active_camera)
-          setFeedFlashing(true)
-          setTimeout(() => setFeedFlashing(false), 1000)
-        }
-      } catch (err) {
-        console.error('Auto-follow poll failed', err)
-      }
-    }, 2000)
-    return () => clearInterval(interval)
-  }, [autoFollow, activeCam, featuredCamera])
 
   // Start cameras from Camera Groups (Settings page) after navigation completes
   useEffect(() => {
@@ -355,61 +343,7 @@ export default function App() {
     setCameras([])
     setNumCameras(null)
     setActiveCam(null)
-    setAutoFollow(false)
     setFeaturedCamera(null)
-  }
-
-  // ── Person search handlers ──
-
-  const handleTargetUpload = async (e) => {
-    const file = e.target.files[0]
-    if (!file) return
-    const form = new FormData()
-    form.append('image', file)
-    try {
-      const res = await fetch(`${API}/search/set-target`, { method: 'POST', body: form })
-      if (!res.ok) {
-        const err = await res.json()
-        alert(`Search error: ${err.detail}`)
-        return
-      }
-      const data = await res.json()
-      setTargetFaceId(data.matched_face_id)
-      setTargetStatus(data.matched_face_id === 'SEARCHING' ? 'searching' : 'found')
-      setTargetPhotoCount(1)
-    } catch (err) {
-      console.error('Search target upload failed', err)
-    }
-  }
-
-  const handleAddPhoto = async (e) => {
-    const file = e.target.files[0]
-    if (!file) return
-    const form = new FormData()
-    form.append('image', file)
-    try {
-      const res = await fetch(`${API}/search/add-photo`, { method: 'POST', body: form })
-      if (!res.ok) {
-        const err = await res.json()
-        alert(`Add photo error: ${err.detail}`)
-        return
-      }
-      const data = await res.json()
-      setTargetPhotoCount(data.total_photos)
-      if (data.matched_face_id && data.matched_face_id !== 'SEARCHING') {
-        setTargetFaceId(data.matched_face_id)
-        setTargetStatus('found')
-      }
-    } catch (err) {
-      console.error('Add photo failed', err)
-    }
-  }
-
-  const handleClearTarget = async () => {
-    await fetch(`${API}/search/clear`, { method: 'POST' })
-    setTargetStatus(null)
-    setTargetFaceId(null)
-    setTargetPhotoCount(0)
   }
 
   // ── Watchlist handlers ──
@@ -564,7 +498,12 @@ export default function App() {
       {/* Top Navigation Bar */}
       <header className="fixed top-0 w-full z-50 flex justify-between items-center px-8 h-16 bg-black border-b border-surface-border">
         <div className="flex items-center gap-8">
-          <span className="text-xl font-bold tracking-tight text-white">FaceTracker AI</span>
+          <span 
+            className="text-xl font-bold tracking-tight text-white cursor-pointer hover:text-neutral-300 transition-colors"
+            onClick={() => setActivePage('dashboard')}
+          >
+            FaceTracker AI
+          </span>
           <nav className="hidden md:flex items-center gap-6">
             <a
               className={`${activePage === 'dashboard' ? 'text-white border-b border-white pb-1' : 'text-on-surface-variant hover:text-white'} font-medium transition-all duration-300 px-3 py-1 rounded-md text-[0.75rem] uppercase tracking-wider cursor-pointer`}
@@ -1071,42 +1010,125 @@ export default function App() {
                 )}
               </div>
 
-              {/* Registered People */}
-              <div className="card-neutral rounded-xl overflow-hidden mt-8">
-                <div className="p-6 border-b border-surface-border flex items-center justify-between">
-                  <div>
-                    <h3 className="text-lg font-medium tracking-tight text-white">Registered People</h3>
-                    <p className="text-xs font-mono text-neutral-500 mt-1">Showing {Math.min(faces.filter(f => f.image_b64).length, 5)} of {faces.length} registered</p>
-                  </div>
-                  <button
-                    onClick={() => fetch(`${API}/faces`).then(r => r.json()).then(setFaces).catch(console.error)}
-                    className="text-[0.6875rem] uppercase font-bold tracking-[0.1em] text-neutral-400 hover:text-white transition-colors"
-                  >Refresh</button>
-                </div>
-                <div className="p-6 grid grid-cols-5 gap-4">
-                  {faces.filter(f => f.image_b64).slice(0, 5).map(face => (
-                    <div key={face.face_id} className="bg-surface-container rounded-xl border border-surface-border overflow-hidden">
-                      <div className="aspect-square bg-[#111] overflow-hidden">
-                        <img
-                          src={`data:image/jpeg;base64,${face.image_b64}`}
-                          className="w-full h-full object-cover"
-                          alt={face.face_id}
-                        />
+              {/* Registered People – All / Live tabs */}
+              {(() => {
+                const FACES_PER_PAGE = 12
+                const displayFaces = faceView === 'live'
+                  ? liveFaces
+                  : faces.filter(f => f.image_b64)
+                const totalFacePages = Math.ceil(displayFaces.length / FACES_PER_PAGE)
+                const faceStart = facesPage * FACES_PER_PAGE
+                const pageFaces = displayFaces.slice(faceStart, faceStart + FACES_PER_PAGE)
+                return (
+                  <div className="card-neutral rounded-xl overflow-hidden mt-8">
+                    {/* Header */}
+                    <div className="p-6 border-b border-surface-border flex items-center justify-between">
+                      <div>
+                        <h3 className="text-lg font-medium tracking-tight text-white">Registered People</h3>
+                        <p className="text-xs font-mono text-neutral-500 mt-1">
+                          {faceView === 'live'
+                            ? `${liveFaces.length} currently visible in stream`
+                            : `${faces.length} total registered`}
+                        </p>
                       </div>
-                      <div className="px-2 py-2">
-                        <p className="text-[0.625rem] font-mono text-white truncate">#FT-{face.face_id.slice(0, 5).toUpperCase()}</p>
-                        <p className="text-[0.5625rem] font-mono text-neutral-500">{face.visit_count}× visits</p>
-                        {face.estimated_gender && (
-                          <p className="text-[0.5625rem] font-mono text-neutral-500 truncate">{face.estimated_gender}{face.estimated_age ? `, ${face.estimated_age}` : ''}</p>
-                        )}
+                      {/* All / Live tabs */}
+                      <div className="flex items-center gap-3">
+                        <div className="flex bg-surface-variant rounded-lg p-0.5 border border-surface-border">
+                          <button
+                            onClick={() => { setFaceView('all'); setFacesPage(0) }}
+                            className={`px-4 py-1.5 rounded-md text-xs font-mono font-bold uppercase tracking-wider transition-colors ${
+                              faceView === 'all' ? 'bg-white text-black' : 'text-neutral-500 hover:text-white'
+                            }`}
+                          >All</button>
+                          <button
+                            onClick={() => { setFaceView('live'); setFacesPage(0) }}
+                            className={`flex items-center gap-1.5 px-4 py-1.5 rounded-md text-xs font-mono font-bold uppercase tracking-wider transition-colors ${
+                              faceView === 'live' ? 'bg-white text-black' : 'text-neutral-500 hover:text-white'
+                            }`}
+                          >
+                            {faceView === 'live' && (
+                              <span className="relative flex h-1.5 w-1.5">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-400"></span>
+                              </span>
+                            )}
+                            Live
+                          </button>
+                        </div>
+                        <button
+                          onClick={() => {
+                            fetch(`${API}/faces`).then(r => r.json()).then(setFaces).catch(console.error)
+                            setFacesPage(0)
+                          }}
+                          className="text-[0.6875rem] uppercase font-bold tracking-[0.1em] text-neutral-400 hover:text-white transition-colors"
+                        >Refresh</button>
                       </div>
                     </div>
-                  ))}
-                  {faces.filter(f => f.image_b64).length === 0 && (
-                    <div className="col-span-5 py-10 text-center text-neutral-500 text-sm font-mono">NO FACE PHOTOS YET</div>
-                  )}
-                </div>
-              </div>
+
+                    {/* Grid */}
+                    <div className="p-6 grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-4">
+                      {pageFaces.map(face => (
+                        <div key={face.face_id} className="bg-surface-container rounded-xl border border-surface-border overflow-hidden group">
+                          <div className="aspect-square bg-[#111] overflow-hidden relative">
+                            {face.image_b64 ? (
+                              <img
+                                src={`data:image/jpeg;base64,${face.image_b64}`}
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                                alt={face.face_id}
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center">
+                                <span className="material-symbols-outlined text-neutral-600 text-3xl">person</span>
+                              </div>
+                            )}
+                            {faceView === 'live' && (
+                              <div className="absolute top-1 right-1 w-2 h-2 rounded-full bg-green-400 border border-black" title="Currently visible"></div>
+                            )}
+                          </div>
+                          <div className="px-2 py-2">
+                            <p className="text-[0.625rem] font-mono text-white truncate">#FT-{face.face_id.slice(0, 5).toUpperCase()}</p>
+                            <p className="text-[0.5625rem] font-mono text-neutral-500">{face.visit_count}× visits</p>
+                            {face.estimated_gender && (
+                              <p className="text-[0.5625rem] font-mono text-neutral-500 truncate">{face.estimated_gender}{face.estimated_age ? `, ${face.estimated_age}` : ''}</p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                      {displayFaces.length === 0 && (
+                        <div className="col-span-6 py-12 text-center">
+                          <span className="material-symbols-outlined text-neutral-600 text-4xl mb-3 block">
+                            {faceView === 'live' ? 'videocam_off' : 'person_off'}
+                          </span>
+                          <p className="text-neutral-500 text-sm font-mono">
+                            {faceView === 'live' ? 'NO FACES VISIBLE IN STREAM RIGHT NOW' : 'NO FACE PHOTOS YET'}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Pagination */}
+                    {displayFaces.length > FACES_PER_PAGE && (
+                      <div className="px-6 pb-6 flex justify-between items-center">
+                        <span className="text-xs font-mono text-neutral-500">
+                          Showing {faceStart + 1}–{Math.min(faceStart + FACES_PER_PAGE, displayFaces.length)} of {displayFaces.length}
+                        </span>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setFacesPage(p => p - 1)}
+                            disabled={facesPage === 0}
+                            className="px-3 py-1.5 text-xs font-mono rounded-lg border border-surface-border text-neutral-400 hover:text-white hover:border-neutral-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                          >Previous</button>
+                          <button
+                            onClick={() => setFacesPage(p => p + 1)}
+                            disabled={facesPage >= totalFacePages - 1}
+                            className="px-3 py-1.5 text-xs font-mono rounded-lg border border-surface-border text-neutral-400 hover:text-white hover:border-neutral-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                          >Next</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
             </>
           )
         })()}
@@ -1238,82 +1260,9 @@ export default function App() {
               </div>
             )}
 
-            {/* STEP 3 + 4 — Live view and person search (once any camera is running) */}
+            {/* STEP 3 — Live view (once any camera is running) */}
             {anyRunning && (
               <>
-                {/* Person Search card */}
-                <div className="card-neutral p-6 rounded-xl mb-6">
-                  <div className="flex items-center gap-3 mb-4">
-                    <span className="material-symbols-outlined text-neutral-400">person_search</span>
-                    <h3 className="text-lg font-medium text-white">Person Search</h3>
-                  </div>
-                  <div className="flex items-start gap-6">
-                    <div className="flex-1">
-                      <p className="text-xs text-neutral-500 mb-3 font-mono">
-                        Upload a photo of a target person to track them across all camera feeds in real time.
-                      </p>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleTargetUpload}
-                        className="block w-full text-sm text-neutral-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-surface-variant file:text-white hover:file:bg-neutral-700 cursor-pointer"
-                      />
-                      {targetStatus !== null && (
-                        <div className="mt-4">
-                          <p className="text-xs text-neutral-500 mb-2 font-mono">
-                            Add another photo (different angle / lighting)
-                          </p>
-                          <input
-                            key={targetPhotoCount}
-                            type="file"
-                            accept="image/*"
-                            onChange={handleAddPhoto}
-                            className="block w-full text-sm text-neutral-400 file:mr-4 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-surface-variant file:text-white hover:file:bg-neutral-700 cursor-pointer"
-                          />
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex flex-col items-end gap-3 min-w-[240px]">
-                      {targetStatus === 'found' && (
-                        <>
-                          <span className="flex items-center gap-2 bg-green-500/10 text-green-400 border border-green-500/20 px-3 py-1.5 rounded-full text-xs font-mono font-bold">
-                            <span className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0"></span>
-                            Found: #FT-{targetFaceId?.slice(0, 5).toUpperCase()}
-                          </span>
-                          <span className="text-[0.625rem] font-mono text-neutral-500">
-                            {targetPhotoCount} photo{targetPhotoCount !== 1 ? 's' : ''} enrolled
-                          </span>
-                        </>
-                      )}
-                      {targetStatus === 'searching' && (
-                        <>
-                          <span className="flex items-center gap-2 bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 px-3 py-1.5 rounded-full text-xs font-mono font-bold">
-                            <span className="animate-ping w-2 h-2 rounded-full bg-yellow-400 flex-shrink-0"></span>
-                            Searching across cameras...
-                          </span>
-                          <span className="text-[0.625rem] font-mono text-neutral-500">
-                            {targetPhotoCount} photo{targetPhotoCount !== 1 ? 's' : ''} enrolled
-                          </span>
-                        </>
-                      )}
-                      {autoFollow && targetStatus === 'found' && activeCamObj && (
-                        <span className="flex items-center gap-2 bg-green-500/5 text-green-300 border border-green-500/10 px-3 py-1.5 rounded-full text-xs font-mono">
-                          <span className="animate-ping w-2 h-2 rounded-full bg-green-400 flex-shrink-0"></span>
-                          Auto-following on {activeCamObj.name}
-                        </span>
-                      )}
-                      {targetStatus !== null && (
-                        <button
-                          onClick={handleClearTarget}
-                          className="text-xs font-mono text-neutral-500 hover:text-white border border-surface-border px-3 py-1.5 rounded-lg transition-colors"
-                        >
-                          Clear Target
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
                 {/* Live feed + stats */}
                 <div className="flex gap-6">
 
@@ -1328,18 +1277,7 @@ export default function App() {
                         )}
                       </div>
                       <div className="flex items-center gap-4">
-                        {/* Auto-Follow toggle */}
-                        <label className="flex items-center gap-2 cursor-pointer select-none">
-                          <span className="text-xs font-mono text-neutral-400 uppercase tracking-wider">Auto-Follow</span>
-                          <div
-                            onClick={() => setAutoFollow(f => !f)}
-                            className={`relative w-10 h-5 rounded-full transition-colors cursor-pointer ${autoFollow ? 'bg-green-500' : 'bg-surface-variant border border-surface-border'}`}
-                          >
-                            <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all duration-200 ${autoFollow ? 'left-5' : 'left-0.5'}`}></span>
-                          </div>
-                        </label>
-                        {/* Live indicator */}
-                        <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2">
                           <span className="relative flex h-2 w-2">
                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-tertiary opacity-75"></span>
                             <span className="relative inline-flex rounded-full h-2 w-2 bg-tertiary"></span>
@@ -1355,15 +1293,9 @@ export default function App() {
                         <img
                           key={featuredCamera ?? activeCam}
                           src={`${API}/stream/feed?camera_id=${featuredCamera ?? activeCam}`}
-                          className={`w-full rounded-lg bg-black transition-all duration-100 ${feedFlashing ? 'border-2 border-yellow-400' : ''}`}
+                          className="w-full rounded-lg bg-black"
                           alt="Live camera feed"
                         />
-                        {autoFollow && featuredCamera && (
-                          <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-black/70 border border-yellow-400/50 px-2 py-1 rounded-full pointer-events-none">
-                            <span className="text-yellow-400 text-[10px]">●</span>
-                            <span className="text-[10px] font-mono text-yellow-400 uppercase tracking-wider">AUTO-FOLLOWING</span>
-                          </div>
-                        )}
                       </div>
                     ) : (
                       <div className="w-full h-64 rounded-lg bg-surface-variant flex items-center justify-center border border-surface-border border-dashed">
@@ -1379,18 +1311,13 @@ export default function App() {
                           key={cam.id}
                           onClick={() => { setActiveCam(cam.id); setFeaturedCamera(cam.id) }}
                           className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-mono font-bold transition-colors ${
-                            autoFollow && featuredCamera === cam.id
-                              ? 'bg-yellow-400/10 text-yellow-400 border-2 border-yellow-400'
-                              : activeCam === cam.id
+                            activeCam === cam.id
                               ? 'bg-white text-black'
                               : 'bg-surface-variant text-neutral-400 hover:text-white border border-surface-border'
                           }`}
                         >
                           <span className="w-1.5 h-1.5 rounded-full bg-green-400 flex-shrink-0"></span>
                           {cam.name}
-                          {autoFollow && featuredCamera === cam.id && (
-                            <span className="text-[8px] font-mono text-yellow-400 uppercase tracking-widest">TRACKING</span>
-                          )}
                         </button>
                       ))}
                       {cameras.filter(c => c.status === 'stopped').map(cam => (
