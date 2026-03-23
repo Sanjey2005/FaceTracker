@@ -2,7 +2,7 @@
 
 A real-time AI-driven face detection, recognition, and visitor counting system built for the Katomaran Hackathon. The system processes live RTSP streams or video files to detect, track, and uniquely count faces — with a full-featured React dashboard for live monitoring.
 
-> **Demo Video:** [Watch the demo on Google Drive](https://drive.google.com/file/d/1uHeVcUi3DYOPHCzVDEId8f6xvSzfIbey/view?usp=sharing)
+> **Demo Video:** [Watch the demo on Google Drive](https://drive.google.com/file/d/1ZAHJ27LouksS-4d-n-4zyLJ0O27lprEf/view)
 
 ---
 

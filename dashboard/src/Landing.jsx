@@ -467,7 +467,7 @@ export default function Landing() {
               <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
             </MagneticButton>
             <a 
-              href="https://drive.google.com/file/d/1uHeVcUi3DYOPHCzVDEId8f6xvSzfIbey/view?usp=sharing"
+              href="https://drive.google.com/file/d/1ZAHJ27LouksS-4d-n-4zyLJ0O27lprEf/view"
               target="_blank"
               rel="noopener noreferrer"
               aria-label="Watch Demo Video"
