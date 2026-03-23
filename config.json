@@ -15,7 +15,7 @@
   "db_path": "data/face_tracker.db",
   "faiss_index_path": "data/faiss_index.bin",
   "log_dir": "logs",
-  "yolo_model": "models/yolov11n-face.pt",
+  "yolo_model": "models/yolov8n-face.pt",
   "yolo_confidence": 0.50,
   "device": "cpu",
   "camera_id": "cam_01",
