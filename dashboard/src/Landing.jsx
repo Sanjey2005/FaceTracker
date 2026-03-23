@@ -19,6 +19,163 @@ import {
   Play
 } from 'lucide-react';
 
+// --- AI Cursor Background Component ---
+function AICursor() {
+  const cursorX = useMotionValue(-100);
+  const cursorY = useMotionValue(-100);
+  const springConfig = { damping: 25, stiffness: 120, mass: 0.5 };
+  const smoothX = useSpring(cursorX, springConfig);
+  const smoothY = useSpring(cursorY, springConfig);
+
+  useEffect(() => {
+    const moveCursor = (e) => {
+      cursorX.set(e.clientX - 64);
+      cursorY.set(e.clientY - 64);
+    };
+    window.addEventListener("mousemove", moveCursor);
+    return () => window.removeEventListener("mousemove", moveCursor);
+  }, [cursorX, cursorY]);
+
+  return (
+    <motion.div
+      style={{ x: smoothX, y: smoothY }}
+      className="hidden md:block fixed top-0 left-0 w-32 h-32 pointer-events-none z-40 mix-blend-screen"
+    >
+      <div className="absolute -top-7 left-0 bg-emerald-500/10 text-emerald-400 font-mono text-[10px] px-2 py-0.5 border border-emerald-500/30 backdrop-blur-md whitespace-nowrap">
+        TARGET LOCK: 0.99
+      </div>
+      <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-emerald-500/80"></div>
+      <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-emerald-500/80"></div>
+      <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-emerald-500/80"></div>
+      <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-emerald-500/80"></div>
+      <div className="absolute top-1/2 left-1/2 w-1 h-1 bg-emerald-500/80 rounded-full -translate-x-1/2 -translate-y-1/2"></div>
+    </motion.div>
+  );
+}
+
+// --- Text Scramble Effect ---
+const CHARS = "!<>-_\\\\/[]{}—=+*^?#________";
+function ScrambleText({ text }) {
+  const [displayText, setDisplayText] = useState(text);
+  const [isScrambling, setIsScrambling] = useState(false);
+
+  const scramble = () => {
+    if (isScrambling) return;
+    setIsScrambling(true);
+    let iterations = 0;
+    const interval = setInterval(() => {
+      setDisplayText(
+        text
+          .split("")
+          .map((char, index) => {
+            if (index < iterations) return text[index];
+            return CHARS[Math.floor(Math.random() * CHARS.length)];
+          })
+          .join("")
+      );
+      if (iterations >= text.length) {
+        clearInterval(interval);
+        setIsScrambling(false);
+      }
+      iterations += 1/3;
+    }, 30);
+  };
+
+  useEffect(() => {
+    setTimeout(scramble, 200);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return <span onMouseEnter={scramble} className="text-transparent bg-clip-text bg-gradient-to-r from-zinc-100 via-emerald-400 to-emerald-200 text-gradient-shimmer inline-block cursor-crosshair relative z-10">{displayText}</span>;
+}
+
+// --- Animated Cyber Eye Background ---
+function AnimatedCyberEye({ className="absolute top-[40%] left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] sm:w-[800px] sm:h-[800px]", opacity=0.25 }) {
+  const mouseX = useMotionValue(0);
+  const mouseY = useMotionValue(0);
+
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      // Calculate normalized mouse position from center of screen (-1 to 1)
+      const x = (e.clientX / window.innerWidth) * 2 - 1;
+      const y = (e.clientY / window.innerHeight) * 2 - 1;
+      mouseX.set(x);
+      mouseY.set(y);
+    };
+    window.addEventListener("mousemove", handleMouseMove);
+    return () => window.removeEventListener("mousemove", handleMouseMove);
+  }, [mouseX, mouseY]);
+
+  // Smooth springs for eye tracking
+  const eyeX = useSpring(useTransform(mouseX, [-1, 1], [-20, 20]), { stiffness: 50, damping: 20 });
+  const eyeY = useSpring(useTransform(mouseY, [-1, 1], [-20, 20]), { stiffness: 50, damping: 20 });
+  
+  const innerPupilX = useSpring(useTransform(mouseX, [-1, 1], [-35, 35]), { stiffness: 60, damping: 15 });
+  const innerPupilY = useSpring(useTransform(mouseY, [-1, 1], [-35, 35]), { stiffness: 60, damping: 15 });
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, scale: 0.8 }}
+      whileInView={{ opacity: opacity, scale: 1 }}
+      viewport={{ once: true, margin: "200px" }}
+      transition={{ duration: 2, ease: "easeOut" }}
+      className={`pointer-events-none z-[0] flex items-center justify-center mix-blend-screen ${className}`}
+    >
+      <svg viewBox="0 0 500 500" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
+        {/* Outer Grid Ring - Rotates slowly */}
+        <motion.circle 
+          cx="250" cy="250" r="220" 
+          stroke="url(#emeraldGradient)" strokeWidth="2" strokeDasharray="4 12" opacity="0.4"
+          animate={{ rotate: 360 }} transition={{ duration: 60, repeat: Infinity, ease: "linear" }}
+          style={{ originX: "50%", originY: "50%" }}
+        />
+        
+        {/* Middle Tech Ring - Counter rotates */}
+        <motion.circle 
+          cx="250" cy="250" r="180" 
+          stroke="#10b981" strokeWidth="1" strokeDasharray="60 20 10 20" opacity="0.6"
+          animate={{ rotate: -360 }} transition={{ duration: 40, repeat: Infinity, ease: "linear" }}
+          style={{ originX: "50%", originY: "50%" }}
+        />
+
+        {/* The White/Emerald Sclera Outline */}
+        <path d="M50 250 C 150 100, 350 100, 450 250 C 350 400, 150 400, 50 250 Z" 
+              stroke="#10b981" strokeWidth="3" opacity="0.3" fill="rgba(16, 185, 129, 0.02)"/>
+        
+        {/* The Moving Iris */}
+        <motion.g style={{ x: eyeX, y: eyeY }}>
+          {/* Iris Base */}
+          <circle cx="250" cy="250" r="80" stroke="#10b981" strokeWidth="2" opacity="0.8" fill="rgba(16, 185, 129, 0.05)" />
+          {/* Iris Tech Details */}
+          <motion.circle 
+            cx="250" cy="250" r="70" 
+            stroke="#10b981" strokeWidth="4" strokeDasharray="2 8" opacity="0.9"
+            animate={{ rotate: 360 }} transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
+            style={{ originX: "50%", originY: "50%" }}
+          />
+          <circle cx="250" cy="250" r="50" stroke="#34d399" strokeWidth="1" opacity="0.5" />
+        </motion.g>
+
+        {/* The Moving Pupil */}
+        <motion.g style={{ x: innerPupilX, y: innerPupilY }}>
+          <circle cx="250" cy="250" r="25" fill="#34d399" opacity="0.9" />
+          <circle cx="250" cy="250" r="10" fill="#000000" />
+          {/* Cyber crosshair on pupil */}
+          <path d="M 250 210 L 250 290 M 210 250 L 290 250" stroke="#10b981" strokeWidth="1" opacity="0.7"/>
+        </motion.g>
+
+        <defs>
+          <linearGradient id="emeraldGradient" x1="0" y1="0" x2="500" y2="500">
+            <stop offset="0%" stopColor="#10b981" stopOpacity="1" />
+            <stop offset="50%" stopColor="#34d399" stopOpacity="0.2" />
+            <stop offset="100%" stopColor="#10b981" stopOpacity="1" />
+          </linearGradient>
+        </defs>
+      </svg>
+    </motion.div>
+  );
+}
+
 // --- Helper for Number Count Up Animation ---
 function Counter({ from, to, duration = 2, delay = 0, suffix = "", prefix = "", decimals = 0 }) {
   const nodeRef = useRef(null);
@@ -164,11 +321,13 @@ export default function Landing() {
           background: `radial-gradient(800px circle at ${mousePos.x}px ${mousePos.y}px, rgba(16,185,129,0.06), transparent 80%)`
         }}
       />
+      <AICursor />
+      
       {/* 2. Grid */}
       <div className="fixed inset-0 z-0 bg-[linear-gradient(to_right,#8080800a_1px,transparent_1px),linear-gradient(to_bottom,#8080800a_1px,transparent_1px)] bg-[size:32px_32px]"></div>
       
       {/* 3. Subtle animated noise/grain overlay */}
-      <div className="fixed inset-0 z-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: "url('data:image/svg+xml,%3Csvg viewBox=\"0 0 200 200\" xmlns=\"http://www.w3.org/2000/svg\"%3E%3Cfilter id=\"noiseFilter\"%3E%3CfeTurbulence type=\"fractalNoise\" baseFrequency=\"0.85\" numOctaves=\"3\" stitchTiles=\"stitch\"/%3E%3C/filter%3E%3Crect width=\"100%25\" height=\"100%25\" filter=\"url(%23noiseFilter)\"/%3E%3C/svg%3E')" }}></div>
+      <div className="fixed inset-0 z-0 opacity-[0.03] pointer-events-none mix-blend-overlay" style={{ backgroundImage: "url('data:image/svg+xml,%3Csvg viewBox=\"0 0 200 200\" xmlns=\"http://www.w3.org/2000/svg\"%3E%3Cfilter id=\"noiseFilter\"%3E%3CfeTurbulence type=\"fractalNoise\" baseFrequency=\"0.85\" numOctaves=\"3\" stitchTiles=\"stitch\"/%3E%3C/filter%3E%3Crect width=\"100%25\" height=\"100%25\" filter=\"url(%23noiseFilter)\"/%3E%3C/svg%3E')" }}></div>
 
       {/* Styled JSX for keyframes */}
       <style>{`
@@ -232,6 +391,7 @@ export default function Landing() {
         
         {/* HERO SECTION */}
         <section className="relative w-full max-w-7xl mx-auto px-6 pt-40 pb-32 flex flex-col items-center text-center">
+          <AnimatedCyberEye />
           
           <motion.div 
             initial={{ opacity: 0, y: 20 }}
@@ -254,9 +414,7 @@ export default function Landing() {
           >
             Intelligent <br className="hidden md:block" />
             Multi-Camera <br className="hidden md:block"/>
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-zinc-100 via-emerald-400 to-emerald-200 text-gradient-shimmer inline-block">
-               Face Tracking.
-            </span>
+            <ScrambleText text="Face Tracking." />
           </motion.h1>
 
           <motion.p 
@@ -324,7 +482,8 @@ export default function Landing() {
         </section>
 
         {/* ARCHITECTURE PIPELINE */}
-        <section className="w-full max-w-6xl mx-auto px-6 py-32 relative">
+        <section className="w-full max-w-6xl mx-auto px-6 py-32 relative overflow-visible">
+          <AnimatedCyberEye className="hidden md:flex absolute top-[50%] right-[-10%] -translate-y-1/2 w-[400px] h-[400px] sm:w-[600px] sm:h-[600px]" opacity={0.25} />
           <motion.div 
             initial={{ opacity: 0, y: 40 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -379,7 +538,7 @@ export default function Landing() {
         </section>
 
         {/* MODEL BENCHMARKS */}
-        <section className="w-full max-w-7xl mx-auto px-6 py-32">
+        <section className="w-full max-w-7xl mx-auto px-6 py-32 relative overflow-visible">
           <motion.div 
             initial={{ opacity: 0, y: 40 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -517,7 +676,8 @@ export default function Landing() {
         </section>
 
         {/* CORE FEATURES (Bento Grid) */}
-        <section className="w-full max-w-7xl mx-auto px-6 py-32 mb-10">
+        <section className="w-full max-w-7xl mx-auto px-6 py-32 mb-10 relative overflow-visible">
+          <AnimatedCyberEye className="hidden md:flex absolute -top-[15%] left-[-10%] w-[400px] h-[400px] sm:w-[600px] sm:h-[600px]" opacity={0.25} />
           <motion.div 
             initial={{ opacity: 0, y: 40 }}
             whileInView={{ opacity: 1, y: 0 }}
