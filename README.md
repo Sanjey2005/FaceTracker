@@ -220,7 +220,7 @@ npm run dev        # Development mode at http://localhost:5173
 npm run build      # Production build served by FastAPI at http://localhost:8000
 ```
 
-> **Note:** The dashboard is protected by a "Lock Right" PIN authentication feature. The default password is `1234`. Use this password to unlock the dashboard when prompted.
+> **Note:** The dashboard is protected by a "Lock" PIN authentication feature. The default password is `1234`. Use this password to unlock the dashboard when prompted.
 
 ### 7. Verify it works
 
