@@ -208,11 +208,12 @@ def _check_watchlist(
     raw_embedding: np.ndarray,
     frame: np.ndarray,
     bbox: tuple,
-) -> None:
+) -> bool:
     """Check a resolved face embedding against the watchlist. Insert alert if matched.
 
     Called from _run_pipeline() after every re-ID resolution.
     Uses _recent_alert_ts to suppress duplicate alerts within 60 seconds.
+    Returns True if any watchlist entry matched (regardless of alert cooldown).
     """
     global _watchlist_cache_ts, _recent_alert_ts
 
@@ -225,6 +226,7 @@ def _check_watchlist(
 
     emb_norm = raw_embedding / (np.linalg.norm(raw_embedding) + 1e-8)
     now = time.monotonic()
+    found_match = False
 
     for entry in _watchlist_cache:
         # Compare against all enrolled embeddings; take best match
@@ -234,6 +236,7 @@ def _check_watchlist(
         if best_sim < 0.55:
             continue
 
+        found_match = True
         wl_id = entry["id"]
         key = (camera_id, wl_id)
 
@@ -277,6 +280,8 @@ def _check_watchlist(
             "WATCHLIST_MATCH watchlist_id=%d name=%s face_id=%s camera=%s sim=%.4f",
             wl_id, entry["name"], face_id, camera_id, best_sim,
         )
+
+    return found_match
 
 
 # ---------------------------------------------------------------------------
@@ -451,6 +456,28 @@ def get_demographics():
         _pool.putconn(conn)
 
 
+@app.get("/faces")
+def get_faces():
+    """Return all registered faces with metadata and their stored photo as base64."""
+    conn = get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT face_id, first_seen, last_seen, visit_count,
+                       estimated_age, estimated_gender, photo_b64 AS image_b64
+                FROM faces
+                ORDER BY first_seen DESC
+            """)
+            rows = cur.fetchall()
+    except psycopg2.Error as exc:
+        logger.error("FACES_ERROR %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        _pool.putconn(conn)
+
+    return [dict(row) for row in rows]
+
+
 # ---------------------------------------------------------------------------
 # Streaming — background pipeline thread
 # ---------------------------------------------------------------------------
@@ -528,6 +555,8 @@ def _run_pipeline(
     last_tracks: list = []
     last_resolved: dict = {}
     frame_id = 0
+    face_id_status: dict = {}    # face_id → "NEW" | "EXISTING"
+    watchlist_face_ids: set = set()  # face_ids confirmed to match watchlist
 
     try:
         while not stop_event.is_set():
@@ -554,33 +583,28 @@ def _run_pipeline(
                         if crop is not None:
                             embedding, det_score = embedder.get_embedding(crop)
                             if embedding is not None:
-                                face_id, _ = registry.lookup_or_register(embedding, frame_id)
+                                face_id, status = registry.lookup_or_register(embedding, frame_id)
                                 last_resolved[tid] = face_id
-                                _check_watchlist(camera_id, face_id, embedding, frame, track["bbox"])
+                                face_id_status[face_id] = status
+                                if status == "NEW":
+                                    _, buf = cv2.imencode(".jpg", crop, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                                    db.update_face_photo(face_id, base64.b64encode(buf.tobytes()).decode())
+                                if _check_watchlist(camera_id, face_id, embedding, frame, track["bbox"]):
+                                    watchlist_face_ids.add(face_id)
 
                 active_ids = {t["tracker_id"] for t in last_tracks}
                 last_resolved = {k: v for k, v in last_resolved.items() if k in active_ids}
                 _camera_last_resolved[camera_id] = set(last_resolved.values())
 
-            # Draw last known boxes on EVERY frame
-            annotated = frame.copy()
-            for track in last_tracks:
-                x1, y1, x2, y2 = map(int, track["bbox"])
-                tid = track["tracker_id"]
-                face_id = last_resolved.get(tid, "")
-                label = f"#FT-{face_id[:5].upper()}" if face_id else f"T{tid}"
-                cv2.rectangle(annotated, (x1, y1), (x2, y2), (255, 255, 255), 2)
-                cv2.putText(annotated, label, (x1, max(y1 - 8, 0)),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1,
-                            cv2.LINE_AA)
-
-            # Target highlight: draw red box over matched person
+            # Compute which tracks are the search target (dynamic embedding matching)
+            target_tids: set = set()
             if _target_embeddings and _target_face_id and _target_face_id != "SEARCHING":
                 for track in last_tracks:
-                    tid = track.get("tracker_id") or track.get("track_id")
+                    tid = track.get("tracker_id")
                     fid = last_resolved.get(tid, "")
-                    is_target = (fid == _target_face_id)
-                    if not is_target and fid and _pool:
+                    if fid == _target_face_id:
+                        target_tids.add(tid)
+                    elif fid and _pool:
                         try:
                             conn = _pool.getconn()
                             try:
@@ -593,21 +617,42 @@ def _run_pipeline(
                                     stored_emb = np.frombuffer(bytes(row[0]), dtype=np.float32)
                                     stored_norm = stored_emb / (np.linalg.norm(stored_emb) + 1e-8)
                                     for t_emb in _target_embeddings:
-                                        sim = float(np.dot(stored_norm, t_emb))
-                                        if sim > 0.50:
-                                            is_target = True
+                                        if float(np.dot(stored_norm, t_emb)) > 0.50:
                                             _target_face_id = fid
+                                            target_tids.add(tid)
                                             break
                             finally:
                                 _pool.putconn(conn)
                         except Exception:
                             pass
-                    if is_target:
-                        x1, y1, x2, y2 = map(int, track["bbox"])
-                        cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 0, 255), 4)
-                        cv2.putText(annotated, "TARGET", (x1, max(y1 - 12, 0)),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2,
-                                    cv2.LINE_AA)
+
+            # Draw color-coded boxes: RED=watchlist/target, GREEN=new, WHITE=known
+            annotated = frame.copy()
+            for track in last_tracks:
+                x1, y1, x2, y2 = map(int, track["bbox"])
+                tid = track["tracker_id"]
+                face_id = last_resolved.get(tid, "")
+
+                is_target   = tid in target_tids
+                is_watchlist = face_id in watchlist_face_ids
+                is_new      = face_id_status.get(face_id) == "NEW"
+
+                if is_target:
+                    color, thickness = (0, 0, 255), 3
+                    label = f"TARGET: #FT-{face_id[:5].upper()}" if face_id else f"TARGET: T{tid}"
+                elif is_watchlist:
+                    color, thickness = (0, 0, 255), 3
+                    label = f"WATCH: #FT-{face_id[:5].upper()}" if face_id else f"WATCH: T{tid}"
+                elif is_new:
+                    color, thickness = (0, 255, 0), 2
+                    label = f"NEW: #FT-{face_id[:5].upper()}" if face_id else f"NEW: T{tid}"
+                else:
+                    color, thickness = (255, 255, 255), 2
+                    label = f"#FT-{face_id[:5].upper()}" if face_id else f"T{tid}"
+
+                cv2.rectangle(annotated, (x1, y1), (x2, y2), color, thickness)
+                cv2.putText(annotated, label, (x1, max(y1 - 8, 0)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 1, cv2.LINE_AA)
 
             small = cv2.resize(annotated, (960, 540))
             try:

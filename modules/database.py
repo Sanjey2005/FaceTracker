@@ -151,8 +151,12 @@ class Database:
                     embedding        BYTEA NOT NULL,
                     thumbnail        TEXT,
                     estimated_age    INTEGER,
-                    estimated_gender TEXT
+                    estimated_gender TEXT,
+                    photo_b64        TEXT
                 )
+            """)
+            cur.execute("""
+                ALTER TABLE faces ADD COLUMN IF NOT EXISTS photo_b64 TEXT
             """)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS events (
@@ -252,6 +256,13 @@ class Database:
                     (face_id, timestamp, timestamp, blob, age, gender),
                 )
         logger.info("FACE_REGISTERED face_id=%s", face_id)
+
+    def update_face_photo(self, face_id: str, photo_b64: str) -> None:
+        """Store the face crop as base64 in faces.photo_b64 (async via write queue)."""
+        self._enqueue(
+            "UPDATE faces SET photo_b64=%s WHERE face_id=%s",
+            (photo_b64, face_id),
+        )
 
     def update_embedding(self, face_id: str, embedding: np.ndarray) -> None:
         """Update the stored embedding for an existing face (async via write queue).

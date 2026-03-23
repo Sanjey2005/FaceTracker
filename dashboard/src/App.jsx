@@ -36,6 +36,7 @@ export default function App() {
   const [events, setEvents] = useState([])
   const [hourlyData, setHourlyData] = useState([])
   const [demographics, setDemographics] = useState({ Male: 0, Female: 0 })
+  const [faces, setFaces] = useState([])
 
   const [activePage, setActivePage] = useState('dashboard')
   const [chartView, setChartView] = useState('day')
@@ -146,6 +147,15 @@ export default function App() {
       fetch(`${API}/hourly?range=week`).then(r => r.json()).then(setWeeklyData).catch(console.error)
     }
   }, [chartView])
+
+  useEffect(() => {
+    if (activePage === 'analytics') {
+      fetch(`${API}/faces`)
+        .then(r => r.ok ? r.json() : [])
+        .then(data => setFaces(Array.isArray(data) ? data : []))
+        .catch(console.error)
+    }
+  }, [activePage])
 
   // Auto-scroll live event feed to top when new events arrive
   useEffect(() => {
@@ -1059,6 +1069,43 @@ export default function App() {
                     </div>
                   </div>
                 )}
+              </div>
+
+              {/* Registered People */}
+              <div className="card-neutral rounded-xl overflow-hidden mt-8">
+                <div className="p-6 border-b border-surface-border flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-medium tracking-tight text-white">Registered People</h3>
+                    <p className="text-xs font-mono text-neutral-500 mt-1">Showing {Math.min(faces.filter(f => f.image_b64).length, 5)} of {faces.length} registered</p>
+                  </div>
+                  <button
+                    onClick={() => fetch(`${API}/faces`).then(r => r.json()).then(setFaces).catch(console.error)}
+                    className="text-[0.6875rem] uppercase font-bold tracking-[0.1em] text-neutral-400 hover:text-white transition-colors"
+                  >Refresh</button>
+                </div>
+                <div className="p-6 grid grid-cols-5 gap-4">
+                  {faces.filter(f => f.image_b64).slice(0, 5).map(face => (
+                    <div key={face.face_id} className="bg-surface-container rounded-xl border border-surface-border overflow-hidden">
+                      <div className="aspect-square bg-[#111] overflow-hidden">
+                        <img
+                          src={`data:image/jpeg;base64,${face.image_b64}`}
+                          className="w-full h-full object-cover"
+                          alt={face.face_id}
+                        />
+                      </div>
+                      <div className="px-2 py-2">
+                        <p className="text-[0.625rem] font-mono text-white truncate">#FT-{face.face_id.slice(0, 5).toUpperCase()}</p>
+                        <p className="text-[0.5625rem] font-mono text-neutral-500">{face.visit_count}× visits</p>
+                        {face.estimated_gender && (
+                          <p className="text-[0.5625rem] font-mono text-neutral-500 truncate">{face.estimated_gender}{face.estimated_age ? `, ${face.estimated_age}` : ''}</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {faces.filter(f => f.image_b64).length === 0 && (
+                    <div className="col-span-5 py-10 text-center text-neutral-500 text-sm font-mono">NO FACE PHOTOS YET</div>
+                  )}
+                </div>
               </div>
             </>
           )
