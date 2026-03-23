@@ -1,0 +1,22 @@
+# AI / Vision
+ultralytics>=8.2.0
+insightface>=0.7.3
+onnxruntime>=1.18.0
+opencv-python>=4.10.0
+numpy>=1.26.0,<2.0.0
+
+# Tracking / Re-ID
+faiss-cpu>=1.8.0
+supervision>=0.21.0
+boxmot>=10.0.84
+
+# Backend
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
+
+# Database
+psycopg2-binary>=2.9.0
+
+# Utilities
+Pillow>=10.3.0
