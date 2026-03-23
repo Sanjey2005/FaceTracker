@@ -141,7 +141,7 @@ export default function Landing({ onEnter }) {
             
             {[
               { title: 'RTSP Stream', desc: 'Input', icon: '📹' },
-              { title: 'YOLOv11n-Face', desc: 'Detection', icon: '🎯' },
+              { title: 'YOLOv8', desc: 'Detection', icon: '🎯' },
               { title: 'InsightFace', desc: 'Embedding', icon: '🧠' },
               { title: 'ByteTrack', desc: 'Re-ID', icon: '🔄' },
               { title: 'PostgreSQL', desc: 'Logging', icon: '🗄️' },
@@ -165,8 +165,8 @@ export default function Landing({ onEnter }) {
           <div className="grid md:grid-cols-3 gap-8">
              <div className="bg-zinc-900/40 border border-zinc-800 rounded-3xl p-8 hover:border-zinc-600 transition-colors">
               <div className="text-emerald-400 font-mono text-sm mb-5 font-semibold tracking-wide uppercase">Detection</div>
-              <h3 className="text-2xl font-bold mb-4 tracking-tight">Upgraded to YOLOv11n-Face</h3>
-              <p className="text-zinc-400 leading-relaxed text-base">Moved from YOLOv8 to YOLOv11n-face for tighter cropping and superior detection on occluded or small faces, significantly improving downstream embedding quality.</p>
+              <h3 className="text-2xl font-bold mb-4 tracking-tight">Powered by YOLOv8</h3>
+              <p className="text-zinc-400 leading-relaxed text-base">Using YOLOv8 for precise face cropping and robust detection, ensuring high-quality inputs for downstream embedding generation.</p>
             </div>
             
             <div className="bg-zinc-900/60 border border-emerald-500/30 rounded-3xl p-8 relative overflow-hidden group shadow-[0_0_20px_rgba(16,185,129,0.05)]">
