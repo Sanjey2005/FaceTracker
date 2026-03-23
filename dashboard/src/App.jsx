@@ -3,12 +3,14 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip,
   RadialBarChart, RadialBar,
 } from 'recharts'
+import { useNavigate } from 'react-router-dom'
 import './App.css'
 
 const API = 'http://localhost:8000'
 const CORRECT_PIN = '1234'
 
 export default function App() {
+  const navigate = useNavigate()
   const [authenticated, setAuthenticated] = useState(() => localStorage.getItem('ft_authenticated') === 'true')
   const [pin, setPin] = useState('')
   const [pinError, setPinError] = useState(false)
@@ -500,7 +502,7 @@ export default function App() {
         <div className="flex items-center gap-8">
           <span 
             className="text-xl font-bold tracking-tight text-white cursor-pointer hover:text-neutral-300 transition-colors"
-            onClick={() => setActivePage('dashboard')}
+            onClick={() => navigate('/')}
           >
             FaceTracker AI
           </span>
